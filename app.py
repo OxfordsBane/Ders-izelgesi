@@ -7,7 +7,7 @@ import xlsxwriter
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Ders Programı V51", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı")
+st.title("🛡️ Hazırlık Ders Programı V51")
 
 # --- YAN PANEL ---
 st.sidebar.header("⚙️ Genel Ayarlar")
@@ -525,3 +525,4 @@ if uploaded_file:
                 else:
 
                     st.error("❌ Çözüm Bulunamadı.")
+
