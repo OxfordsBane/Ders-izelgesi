@@ -5,9 +5,9 @@ import io
 import xlsxwriter
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V51 - Pazartesi/Cuma Kuralı", layout="wide")
+st.set_page_config(page_title="Ders Programı V51", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V51 - Danışman Pzt/Cuma Odaklı)")
+st.title("🛡️ Hazırlık Ders Programı")
 
 # --- YAN PANEL ---
 st.sidebar.header("⚙️ Genel Ayarlar")
@@ -523,4 +523,5 @@ if uploaded_file:
 
                     st.download_button("Excel İndir", output_res.getvalue(), "ders_programi_final.xlsx")
                 else:
+
                     st.error("❌ Çözüm Bulunamadı.")
