@@ -56,7 +56,7 @@ def generate_template():
         df_teachers = pd.DataFrame({
             'Ad Soyad': ['Ahmet Hoca', 'Sarah (Native)', 'Mehmet (Danışman)', 'Ayşe Hoca', 'Destek Hoca 1'],
             'Rol': ['Kadrolu', 'Native', 'Kadrolu', 'Ek Görevli', 'Destek'],
-            'Hedef Ders Sayısı': [4, 4, 3, 2, 5],
+            'Hedef Ders Sayısı': [18, 18, 16, 8, 20],
             'Tercih (Sabah/Öğle)': ['Sabah', 'Farketmez', 'Sabah', 'Öğle', 'Farketmez'],
             'Yasaklı Günler': ['Cuma', 'Çarşamba', '', 'Pazartesi,Salı', ''],
             'Sabit Sınıf': ['', '', 'A1.01', '', ''],
@@ -67,25 +67,69 @@ def generate_template():
         
         workbook = writer.book
         worksheet = workbook.add_worksheet('NASIL KULLANILIR')
-        header_fmt = workbook.add_format({'bold': True, 'font_size': 14, 'bg_color': '#D3D3D3', 'border': 1})
-        text_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-        worksheet.write('A1', 'PROGRAM KULLANIM KILAVUZU', header_fmt)
-        worksheet.set_column('A:A', 100)
+        
+        # Formatlar
+        header_fmt = workbook.add_format({'bold': True, 'font_size': 12, 'bg_color': '#4F81BD', 'font_color': 'white', 'border': 1})
+        sub_header_fmt = workbook.add_format({'bold': True, 'font_size': 11, 'bg_color': '#DCE6F1', 'border': 1})
+        text_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
+        
+        worksheet.set_column('A:A', 120)
         
         instructions = [
-            "1. DANIŞMAN KURALI (GÜNCELLENDİ)",
-            "   - Danışman hocalar PAZARTESİ günü sınıflarında olmak ZORUNDADIR.",
-            "   - Danışman hocalar CUMA günü sınıflarında olmak için TEŞVİK EDİLİR (Sistem buna öncelik verir).",
+            "PROGRAM KULLANIM KILAVUZU",
             "",
-            "2. NATIVE HOCA KURALI",
-            "   - Native hocalar mümkün olduğunca PAZARTESİ günü derse yazılmaz.",
+            "1. SÜTUNLAR NASIL DOLDURULUR?",
+            "• Ad Soyad: Hocanın sistemde görünecek adı.",
+            "• Rol: Hocanın statüsü (Aşağıdaki 'Roller' bölümüne bakınız).",
+            "• Hedef Ders Sayısı: Hocanın o hafta girmesi planlanan toplam ders saati (oturum sayısı).",
+            "• Tercih: 'Sabah', 'Öğle' veya 'Farketmez'. (Not: Destek ve Native hocalar gerekirse tercihlerinin dışına yazılabilir).",
+            "• Yasaklı Günler: Hocanın asla gelemeyeceği günler. Virgülle ayırın (Örn: Pazartesi,Cuma).",
+            "• Sabit Sınıf: Eğer bir hoca bir sınıfın 'Danışmanı' ise, sınıfın adını buraya yazın (Örn: A1.01).",
+            "• Yetkinlik: Hocanın girebileceği seviyeler. Hepsine girerse 'Hepsi' yazın.",
+            "• İstenmeyen Partner: Aynı sınıfa girmesi istenmeyen hocanın tam adı.",
             "",
-            "3. DESTEK HOCA KURALI",
-            "   - Destek hocaları bir sınıfa ya '1 kez' ya da '3+ kez' girer. 2 kez giremez.",
+            "2. ROLLER VE ÖZELLİKLERİ",
+            "★ KADROLU / DANIŞMAN:",
+            "   - Eğer 'Sabit Sınıf' sütunu doluysa, o sınıfın danışmanı kabul edilir.",
+            "   - KURAL: Danışmanlar, kendi sınıflarına PAZARTESİ girmek ZORUNDADIR.",
+            "   - KURAL: Danışmanlar, kendi sınıflarına CUMA günü girmek için TEŞVİK EDİLİR (Sistem öncelik verir).",
+            "   - KURAL: Haftalık ders yükü müsaitse, kendi sınıfına en az 3 farklı gün girmesi sağlanır.",
+            "",
+            "★ NATIVE (YABANCI HOCA):",
+            "   - A1 seviyesindeki sınıflara ders verilmez.",
+            "   - KURAL: Mümkün olduğunca PAZARTESİ günleri derse yazılmaz (Danışman değilse).",
+            "   - Bir sınıfa haftada en fazla 1 kez Native hoca girer.",
+            "",
+            "★ DESTEK (DSÜ):",
+            "   - Programdaki boşlukları doldurmak için kullanılır.",
+            "   - KURAL: Bir sınıfa ya '1 kez' (yama olarak) ya da '3 ve üzeri kez' (danışman yardımcısı gibi) girer.",
+            "   - ÖNEMLİ: Bir sınıfa haftada tam olarak '2 kez' girmesi yasaklanmıştır.",
+            "",
+            "★ EK GÖREVLİ:",
+            "   - İdari görevi olan hocalardır.",
+            "   - Bir sınıfa haftada en fazla 1 oturum ders verirler.",
+            "",
+            "3. OTOMATİK SİSTEM KURALLARI",
+            "• Pre-Faculty Sınıfları: Bu sınıflar sadece Pazartesi, Salı ve Çarşamba günleri ders yapar. Perşembe/Cuma boştur.",
+            "• Yasaklı Günler: Bu kural en katı kuraldır, sistem asla delmez.",
+            "• Danışman Atama: Bir sınıfa 'Sabit Sınıf' ile hoca atanmamışsa, sistem o sınıfa en çok giren hocayı otomatik olarak 'Sınıf Danışmanı' ilan eder."
         ]
-        row = 1
+        
+        row = 0
         for line in instructions:
-            worksheet.write(row, 0, line, text_fmt)
+            if "PROGRAM KULLANIM" in line:
+                f = header_fmt
+                worksheet.set_row(row, 30)
+            elif line.startswith("1.") or line.startswith("2.") or line.startswith("3."):
+                f = sub_header_fmt
+                worksheet.set_row(row, 25)
+            elif line.strip() == "":
+                f = workbook.add_format({}) # Boş satır formatsız
+            else:
+                f = text_fmt
+                worksheet.set_row(row, 20)
+                
+            worksheet.write(row, 0, line, f)
             row += 1
             
     return output.getvalue()
@@ -525,4 +569,5 @@ if uploaded_file:
                 else:
 
                     st.error("❌ Çözüm Bulunamadı.")
+
 
