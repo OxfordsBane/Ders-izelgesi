@@ -5,9 +5,9 @@ import io
 import xlsxwriter
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V51", layout="wide")
+st.set_page_config(page_title="Ders Programı V52 - Final", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı V51")
+st.title("🛡️ Hazırlık Ders Programı (V52 - Danışman Rolü Düzeltildi)")
 
 # --- YAN PANEL ---
 st.sidebar.header("⚙️ Genel Ayarlar")
@@ -49,14 +49,15 @@ def create_automated_classes():
             class_list.append({"Sınıf Adı": class_name, "Seviye": lvl, "Zaman Kodu": time_code})
     return pd.DataFrame(class_list)
 
-# --- EXCEL ŞABLONU ---
+# --- EXCEL ŞABLONU (GÜNCELLENDİ) ---
 def generate_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Rol sütunu 'Danışman' olarak düzeltildi
         df_teachers = pd.DataFrame({
             'Ad Soyad': ['Ahmet Hoca', 'Sarah (Native)', 'Mehmet (Danışman)', 'Ayşe Hoca', 'Destek Hoca 1'],
-            'Rol': ['Kadrolu', 'Native', 'Kadrolu', 'Ek Görevli', 'Destek'],
-            'Hedef Ders Sayısı': [18, 18, 16, 8, 20],
+            'Rol': ['Danışman', 'Native', 'Danışman', 'Ek Görevli', 'Destek'],
+            'Hedef Ders Sayısı': [4, 4, 3, 2, 5],
             'Tercih (Sabah/Öğle)': ['Sabah', 'Farketmez', 'Sabah', 'Öğle', 'Farketmez'],
             'Yasaklı Günler': ['Cuma', 'Çarşamba', '', 'Pazartesi,Salı', ''],
             'Sabit Sınıf': ['', '', 'A1.01', '', ''],
@@ -78,41 +79,31 @@ def generate_template():
         instructions = [
             "PROGRAM KULLANIM KILAVUZU",
             "",
-            "1. SÜTUNLAR NASIL DOLDURULUR?",
-            "• Ad Soyad: Hocanın sistemde görünecek adı.",
-            "• Rol: Hocanın statüsü (Aşağıdaki 'Roller' bölümüne bakınız).",
-            "• Hedef Ders Sayısı: Hocanın o hafta girmesi planlanan toplam ders saati (oturum sayısı).",
-            "• Tercih: 'Sabah', 'Öğle' veya 'Farketmez'. (Not: Destek ve Native hocalar gerekirse tercihlerinin dışına yazılabilir).",
-            "• Yasaklı Günler: Hocanın asla gelemeyeceği günler. Virgülle ayırın (Örn: Pazartesi,Cuma).",
-            "• Sabit Sınıf: Eğer bir hoca bir sınıfın 'Danışmanı' ise, sınıfın adını buraya yazın (Örn: A1.01).",
-            "• Yetkinlik: Hocanın girebileceği seviyeler. Hepsine girerse 'Hepsi' yazın.",
-            "• İstenmeyen Partner: Aynı sınıfa girmesi istenmeyen hocanın tam adı.",
+            "1. SÜTUNLAR VE ÖNEMLİ AYARLAR",
+            "• Rol: Hocanın görevi. (Danışman, Native, Destek, Ek Görevli)",
+            "• Sabit Sınıf: Eğer hoca bir sınıfın 'Sınıf Sorumlusu' ise sınıf adı buraya yazılır (Örn: A1.01).",
+            "• Yasaklı Günler: Hocanın asla gelemeyeceği günler.",
             "",
-            "2. ROLLER VE ÖZELLİKLERİ",
-            "★ KADROLU / DANIŞMAN:",
-            "   - Eğer 'Sabit Sınıf' sütunu doluysa, o sınıfın danışmanı kabul edilir.",
-            "   - KURAL: Danışmanlar, kendi sınıflarına PAZARTESİ girmek ZORUNDADIR.",
-            "   - KURAL: Danışmanlar, kendi sınıflarına CUMA günü girmek için TEŞVİK EDİLİR (Sistem öncelik verir).",
-            "   - KURAL: Haftalık ders yükü müsaitse, kendi sınıfına en az 3 farklı gün girmesi sağlanır.",
+            "2. ROLLER VE KURALLAR",
+            "★ DANIŞMAN (SABİT SINIFI OLANLAR):",
+            "   - Kendi sınıflarına PAZARTESİ girmek ZORUNDADIR.",
+            "   - Kendi sınıflarına CUMA günü girmek için TEŞVİK EDİLİR (Sistem öncelik verir).",
+            "   - Eğer hedef ders sayısı uygunsa, kendi sınıfına en az 3 farklı gün girmesi sağlanır.",
             "",
             "★ NATIVE (YABANCI HOCA):",
-            "   - A1 seviyesindeki sınıflara ders verilmez.",
-            "   - KURAL: Mümkün olduğunca PAZARTESİ günleri derse yazılmaz (Danışman değilse).",
+            "   - A1 seviyesine girmezler.",
+            "   - Mümkün olduğunca PAZARTESİ günleri derse yazılmazlar (Danışman değillerse).",
             "   - Bir sınıfa haftada en fazla 1 kez Native hoca girer.",
             "",
             "★ DESTEK (DSÜ):",
-            "   - Programdaki boşlukları doldurmak için kullanılır.",
-            "   - KURAL: Bir sınıfa ya '1 kez' (yama olarak) ya da '3 ve üzeri kez' (danışman yardımcısı gibi) girer.",
-            "   - ÖNEMLİ: Bir sınıfa haftada tam olarak '2 kez' girmesi yasaklanmıştır.",
+            "   - Programdaki boşlukları doldururlar.",
+            "   - Bir sınıfa ya '1 kez' (yama) ya da '3+ kez' (danışman vekili) girerler. 2 kez giremezler.",
             "",
             "★ EK GÖREVLİ:",
-            "   - İdari görevi olan hocalardır.",
-            "   - Bir sınıfa haftada en fazla 1 oturum ders verirler.",
+            "   - İdari görevi olanlar. Bir sınıfa haftada en fazla 1 ders verirler.",
             "",
-            "3. OTOMATİK SİSTEM KURALLARI",
-            "• Pre-Faculty Sınıfları: Bu sınıflar sadece Pazartesi, Salı ve Çarşamba günleri ders yapar. Perşembe/Cuma boştur.",
-            "• Yasaklı Günler: Bu kural en katı kuraldır, sistem asla delmez.",
-            "• Danışman Atama: Bir sınıfa 'Sabit Sınıf' ile hoca atanmamışsa, sistem o sınıfa en çok giren hocayı otomatik olarak 'Sınıf Danışmanı' ilan eder."
+            "3. PRE-FACULTY SINIFLARI",
+            "• Bu sınıflar sadece Pazartesi, Salı ve Çarşamba günleri ders yapar. Perşembe ve Cuma boştur."
         ]
         
         row = 0
@@ -124,7 +115,7 @@ def generate_template():
                 f = sub_header_fmt
                 worksheet.set_row(row, 25)
             elif line.strip() == "":
-                f = workbook.add_format({}) # Boş satır formatsız
+                f = workbook.add_format({}) 
             else:
                 f = text_fmt
                 worksheet.set_row(row, 20)
@@ -135,7 +126,7 @@ def generate_template():
     return output.getvalue()
 
 st.sidebar.markdown("---")
-st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(), "ogretmen_listesi_v51.xlsx")
+st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(), "ogretmen_listesi_v52.xlsx")
 
 # --- ANALİZ ---
 def analyze_data(teachers, classes):
@@ -227,7 +218,7 @@ if uploaded_file:
 
                 # --- KISITLAMALAR ---
                 
-                # 1. Sınıf Doluluğu (PreFaculty Pzt-Sal-Çar Kuralı)
+                # 1. Sınıf Doluluğu
                 for c_idx, c_data in enumerate(classes_list):
                     req_session = c_data['Zaman Kodu']
                     other_session = 1 - req_session
@@ -374,11 +365,10 @@ if uploaded_file:
                             req_s = classes_list[fixed_c]['Zaman Kodu']
                             target_load = int(t['Hedef Ders Sayısı'])
                             
-                            # 1. KURAL: Pazartesi KESİNLİKLE oradadır. (Hard Constraint)
+                            # 1. KURAL: Pazartesi KESİNLİKLE oradadır.
                             model.Add(x[(t_idx, fixed_c, 0, req_s)] == 1)
 
-                            # 2. TEŞVİK: Cuma günü de orada olsun. (Soft Constraint - Yüksek Puan)
-                            # Not: PreFac için Cuma olmadığı için bu puan sadece normal sınıflarda işe yarar.
+                            # 2. TEŞVİK: Cuma günü de orada olsun.
                             objective.append(x[(t_idx, fixed_c, 4, req_s)] * 2000000)
                             
                             # 3. KURAL: Hedef ders sayısı >= 3 ise en az 3 GÜN.
@@ -567,7 +557,4 @@ if uploaded_file:
 
                     st.download_button("Excel İndir", output_res.getvalue(), "ders_programi_final.xlsx")
                 else:
-
                     st.error("❌ Çözüm Bulunamadı.")
-
-
