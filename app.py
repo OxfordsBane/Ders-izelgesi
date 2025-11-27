@@ -4,14 +4,9 @@ from ortools.sat.python import cp_model
 import io
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V45 - Esnek Çözüm", layout="wide")
+st.set_page_config(page_title="Ders Programı V45 - Final Fix", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V45 - Danışman Açığı Çözümü)")
-st.warning("""
-**Durum Analizi:**
-Elinizdeki 'Danışman' sayısı, toplam sınıf sayısından az. Bu yüzden sistem bazı sınıflara 'Destek' hocalarını Danışman olarak atamak zorunda kalacak.
-Bu sürümde, boş ders kalmaması için tüm kurallar esnetilebilir hale getirildi.
-""")
+st.title("🛡️ Hazırlık Ders Programı (V45 - Hata Düzeltildi)")
 
 # --- YAN PANEL ---
 st.sidebar.header("⚙️ Genel Ayarlar")
@@ -110,7 +105,6 @@ def analyze_data(teachers, classes):
         fixed_class = str(t['Sabit Sınıf']).strip()
         
         if "DESTEK" in role and fixed_class:
-             # Destek hocası artık sabit sınıf alabilir (Danışman açığını kapatmak için)
              pass 
              
         if not allow_native_advisor:
@@ -324,6 +318,16 @@ if uploaded_file:
                     if 'Destek' in str(t['Rol']):
                         for c in range(len(classes_list)):
                             for s in sessions: objective.append(x[(t_idx, c, 0, s)] * -1000)
+
+                # I. Native Dağılımı
+                for c_idx, c_data in enumerate(classes_list):
+                    for t_idx, t in enumerate(teachers_list):
+                        if 'Native' in str(t['Rol']):
+                            is_present = model.NewBoolVar(f'ntv_score_{t_idx}_{c_idx}')
+                            model.AddMaxEquality(is_present, [x[(t_idx, c_idx, d, s)] for d in days for s in sessions])
+                            lvl = c_data['Seviye']
+                            score = 10000 if lvl == "A2" else (50000 if lvl == "B1" else (100000 if lvl == "B2" else 0))
+                            objective.append(is_present * score)
 
                 # --- ÇÖZÜM ---
                 model.Maximize(sum(objective))
