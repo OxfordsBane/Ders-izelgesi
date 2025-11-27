@@ -105,6 +105,7 @@ def analyze_data(teachers, classes):
         fixed_class = str(t['Sabit Sınıf']).strip()
         
         if "DESTEK" in role and fixed_class:
+             # Destek hocası artık sabit sınıf alabilir (Danışman açığını kapatmak için)
              pass 
              
         if not allow_native_advisor:
