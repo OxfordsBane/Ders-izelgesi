@@ -4,13 +4,14 @@ from ortools.sat.python import cp_model
 import io
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V41 - Hatasız Final", layout="wide")
+st.set_page_config(page_title="Ders Programı V42 - Hiyerarşik", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V41 - Hatasız Sürüm)")
+st.title("🛡️ Hazırlık Ders Programı (V42 - Hiyerarşik Yerleşim)")
 st.info("""
-**Düzeltildi:**
-✅ **Sistem Hatası Giderildi:** Yetkinlik kontrolündeki kod hatası düzeltildi.
-⚓ **Danışman Kuralları:** Danışmanlar Pazartesi kendi sınıfında olur + En az 2 gün o sınıfa girer (Zorunlu).
+**Yeni Kurallar:**
+1. 👑 **Danışman Krallığı:** Danışmanlar sınıflarına **Pazartesi + En Az 2 Gün** (Toplam 3+) girmek ZORUNDADIR.
+2. 🌍 **Native Sınırı:** Native hocalar bir sınıfa haftada **en fazla 1 kez** girebilir.
+3. ⚖️ **Adil Dağıtım:** Kapasite aşımı varsa, kimseyi dışarıda bırakmamak için hedeflerden 1'er saat kırpılır.
 """)
 
 # --- YAN PANEL ---
@@ -78,17 +79,16 @@ def generate_template():
         
         instructions = [
             "1. ROL SÜTUNU NEDİR?",
-            "   - Destek: Pazartesi derse giremezler (esnek), Danışman olamazlar.",
-            "   - Native: Yabancı hocalar. A1'e girmezler. B2 > B1 > A2 önceliğiyle dağıtılırlar.",
-            "   - Danışman: Sınıf sorumlularıdır. Program onları bir sınıfta toplamaya çalışır.",
-            "   - Ek Görevli: İdari/Özel görevi olanlar. Sınıf Danışmanı olamazlar.",
+            "   - Destek: Joker elemandır. Gerektiğinde Danışman olur.",
+            "   - Native: Haftada 1 sınıfa Max 1 kez girer.",
+            "   - Danışman: Sınıfına en az 3 gün girer.",
+            "   - Ek Görevli: İdari görevli. Sınıf Danışmanı olamaz.",
             "",
             "2. SÜTUNLAR NASIL DOLDURULUR?",
-            "   - Hedef Ders Sayısı: Hocanın o hafta gireceği toplam 'oturum' sayısı.",
-            "   - Tercih: 'Sabah', 'Öğle'. Sistem buna uymak için ÇOK çabalar.",
-            "   - Yasaklı Günler: Hoca o gün ASLA gelmez. Virgülle ayırın.",
-            "   - Sabit Sınıf: Hocanın özellikle girmesi istenen sınıfı (Koordinatör vb.).",
-            "   - Yetkinlik: 'Hepsi' veya 'A1,A2' gibi.",
+            "   - Hedef Ders Sayısı: Sistem gerekirse bunu 1 saat azaltarak herkesi sığdırır.",
+            "   - Tercih: 'Sabah', 'Öğle'.",
+            "   - Yasaklı Günler: Hoca o gün ASLA gelmez.",
+            "   - Sabit Sınıf: Hocanın kesin atanacağı sınıf.",
         ]
         row = 1
         for line in instructions:
@@ -109,8 +109,6 @@ def analyze_data(teachers, classes):
         role = str(t['Rol']).upper()
         fixed_class = str(t['Sabit Sınıf']).strip()
         
-        if "DESTEK" in role and fixed_class:
-             errors.append(f"🛑 **{t['Ad Soyad']}**: 'Destek' hocası sabit sınıf alamaz!")
         if not allow_native_advisor and "NATIVE" in role and fixed_class:
              errors.append(f"🛑 **{t['Ad Soyad']}**: Native hocaya sabit sınıf verilmesi engellendi.")
         
@@ -119,12 +117,10 @@ def analyze_data(teachers, classes):
             if not target_class:
                 errors.append(f"❌ **{t['Ad Soyad']}**: Atandığı '{fixed_class}' sınıfı sistemde yok.")
             
-            # Yasaklı Gün Uyarısı
             forbidden_count = len(str(t['Yasaklı Günler']).split(',')) if t['Yasaklı Günler'] else 0
             available_days = 5 - forbidden_count
-            target = int(t['Hedef Ders Sayısı'])
-            if available_days < target:
-                warnings.append(f"⚠️ **{t['Ad Soyad']}**: Hedefi {target} gün ama sadece {available_days} gün müsait. Hedef otomatik olarak {available_days} güne düşürülecek.")
+            if available_days < 3 and "DANIŞMAN" in role:
+                warnings.append(f"⚠️ **{t['Ad Soyad']}**: Danışman ama sadece {available_days} gün müsait. 3 gün kuralı uygulanamayabilir.")
 
     return errors, warnings
 
@@ -150,22 +146,35 @@ if uploaded_file:
         if logic_warnings:
             for w in logic_warnings: st.warning(w)
             
+        # KAPASİTE KONTROLÜ VE DENGELEME
         total_slots_needed = len(classes_list) * 5
-        total_slots_avail = sum(t['Hedef Ders Sayısı'] for t in teachers_list)
         
+        # Gerçek talep (Yasaklı günleri düşerek)
+        raw_demand = 0
+        for t in teachers_list:
+            forbidden_cnt = len(str(t['Yasaklı Günler']).split(',')) if t['Yasaklı Günler'] else 0
+            # Çift vardiya alabilenler için kapasite x2
+            max_cap = (5 - forbidden_cnt) * (2 if 'Destek' in str(t['Rol']) or 'Native' in str(t['Rol']) else 1)
+            raw_demand += min(int(t['Hedef Ders Sayısı']), max_cap)
+
         col1, col2 = st.columns(2)
-        col1.metric("İhtiyaç", total_slots_needed)
-        col2.metric("Kapasite", total_slots_avail)
+        col1.metric("Sınıf İhtiyacı", total_slots_needed)
+        col2.metric("Hoca Kapasitesi (Ham)", raw_demand)
+        
+        # Otomatik İndirim Mantığı
+        reduce_mode = False
+        if raw_demand > total_slots_needed:
+            st.info("ℹ️ Hoca kapasitesi ihtiyactan fazla. Herkesi yerleştirmek için hedeflerden gerekirse 1 saat kırpılacak.")
+            reduce_mode = True
 
         if st.button("🚀 Programı Oluştur"):
-            with st.spinner("Optimizasyon yapılıyor... (Danışmanlar sınıflarına kilitleniyor...)"):
+            with st.spinner("Optimizasyon yapılıyor... (Danışmanlara 3 Gün + Pazartesi şartı uygulanıyor...)"):
                 
                 model = cp_model.CpModel()
-                days = range(5) # 0-4
+                days = range(5)
                 day_names = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"]
                 sessions = range(2)
                 
-                # --- DEĞİŞKENLER ---
                 x = {}
                 advisor_var = {} 
                 
@@ -176,50 +185,63 @@ if uploaded_file:
                             for s in sessions:
                                 x[(t, c, d, s)] = model.NewBoolVar(f'x_{t}_{c}_{d}_{s}')
 
-                # --- KISITLAMALAR (HARD) ---
+                # --- 1. DANIŞMANLIK İSKELETİ (HARD CONSTRAINTS) ---
                 
-                # 1. Danışman Tekilliği
+                # A. Tekillik (Bir sınıfın 1 danışmanı olur, bir hoca 1 yere danışman olur)
                 for c in range(len(classes_list)):
                     model.Add(sum(advisor_var[(t, c)] for t in range(len(teachers_list))) == 1)
-
                 for t in range(len(teachers_list)):
                     model.Add(sum(advisor_var[(t, c)] for c in range(len(classes_list))) <= 1)
 
-                # 2. Rol Kısıtlamaları
+                # B. Rol Kısıtlamaları (Ek Görevli Olamaz)
                 for t_idx, t in enumerate(teachers_list):
-                    role = str(t['Rol'])
-                    if 'Ek Görevli' in role:
+                    if 'Ek Görevli' in str(t['Rol']):
                         for c in range(len(classes_list)): model.Add(advisor_var[(t_idx, c)] == 0)
-                    if not allow_native_advisor and 'Native' in role:
+                    if not allow_native_advisor and 'Native' in str(t['Rol']):
                         for c in range(len(classes_list)): model.Add(advisor_var[(t_idx, c)] == 0)
 
-                # 3. Sabit Sınıf
+                # C. Sabit Sınıf Ataması
                 for t_idx, t in enumerate(teachers_list):
                     if t['Sabit Sınıf']:
                         fixed_c_idx = next((i for i, c in enumerate(classes_list) if c['Sınıf Adı'] == str(t['Sabit Sınıf'])), None)
                         if fixed_c_idx is not None:
                             model.Add(advisor_var[(t_idx, fixed_c_idx)] == 1)
 
-                # 4. DANIŞMAN ZORUNLULUKLARI (Pazartesi + Min 2 Gün)
+                # D. DANIŞMAN ŞARTLARI (Pazartesi + 3 Gün)
                 for t_idx, t_data in enumerate(teachers_list):
-                    # Müsait gün sayısını hesapla
-                    forbidden_count = len(str(t_data['Yasaklı Günler']).split(',')) if t_data['Yasaklı Günler'] else 0
+                    # Müsait gün sayısı
+                    forbidden_days = str(t_data['Yasaklı Günler'])
+                    forbidden_count = len(forbidden_days.split(',')) if t_data['Yasaklı Günler'] else 0
                     available_days = 5 - forbidden_count
                     
                     for c_idx, c_data in enumerate(classes_list):
                         is_adv = advisor_var[(t_idx, c_idx)]
                         req_s = c_data['Zaman Kodu']
                         
-                        # A. Pazartesi Zorunluluğu
-                        if "Pazartesi" not in str(t_data['Yasaklı Günler']):
+                        # 1. Pazartesi Kuralı
+                        if "Pazartesi" not in forbidden_days:
                             model.Add(x[(t_idx, c_idx, 0, req_s)] == 1).OnlyEnforceIf(is_adv)
                         
-                        # B. En Az 2 Gün Zorunluluğu
-                        if available_days >= 2:
-                            days_in_class = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
+                        # 2. 3 Gün Kuralı (Müsaitse)
+                        days_in_class = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
+                        if available_days >= 3:
+                            model.Add(days_in_class >= 3).OnlyEnforceIf(is_adv)
+                        elif available_days == 2:
                             model.Add(days_in_class >= 2).OnlyEnforceIf(is_adv)
 
-                # --- Standart Kısıtlamalar ---
+                # --- 2. NATIVE KISITLAMASI ---
+                for t_idx, t in enumerate(teachers_list):
+                    if 'Native' in str(t['Rol']):
+                        for c_idx in range(len(classes_list)):
+                            # Native bir sınıfa haftada Max 1 kez girer
+                            # Ancak eğer o sınıfın Danışmanıysa (istisna) bu kuralı deleriz.
+                            is_not_advisor = advisor_var[(t_idx, c_idx)].Not()
+                            
+                            class_total = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
+                            # Danışman DEĞİLSE <= 1
+                            model.Add(class_total <= 1).OnlyEnforceIf(is_not_advisor)
+
+                # --- 3. GENEL KISITLAMALAR ---
                 for c_idx, c_data in enumerate(classes_list):
                     req_session = c_data['Zaman Kodu']
                     other_session = 1 - req_session
@@ -235,21 +257,35 @@ if uploaded_file:
                         for s in sessions:
                             model.Add(sum(x[(t, c, d, s)] for c in range(len(classes_list))) <= 1)
                 
-                # Hedef Ders
+                # --- 4. HEDEF DENGELEME (AKILLI HEDEF) ---
                 adjusted_targets = []
                 for t_idx, t in enumerate(teachers_list):
                     original_target = int(t['Hedef Ders Sayısı'])
+                    
+                    # 1. Yasaklı gün limiti
                     forbidden_count = len(str(t['Yasaklı Günler']).split(',')) if t['Yasaklı Günler'] else 0
                     max_possible = 5 - forbidden_count
                     if 'Destek' in str(t['Rol']) or 'Native' in str(t['Rol']): max_possible *= 2
-                    real_target = min(original_target, max_possible)
+                    
+                    # 2. Fazla talep varsa 1 azalt
+                    if reduce_mode and original_target > 2: # 2 dersin altına düşürme
+                        target_to_use = original_target - 1
+                    else:
+                        target_to_use = original_target
+                        
+                    real_target = min(target_to_use, max_possible)
                     adjusted_targets.append(real_target)
                     
+                    # Hedef Kısıtı
                     total_assignments = []
                     for c in range(len(classes_list)):
                         for d in days:
                             for s in sessions: total_assignments.append(x[(t_idx, c, d, s)])
+                    
                     model.Add(sum(total_assignments) <= real_target)
+                    # "Hiç kimse boş kalmayacak" kuralı
+                    if real_target > 0:
+                        model.Add(sum(total_assignments) >= 1)
 
                 # Max Hoca
                 for c_idx in range(len(classes_list)):
@@ -268,7 +304,7 @@ if uploaded_file:
                                 for d in days:
                                     for s in sessions: model.Add(x[(t_idx, c_idx, d, s)] == 0)
 
-                # Native Tekilliği
+                # Native Tekilliği (Sınıf Anında)
                 for c_idx, c_data in enumerate(classes_list):
                     natives_in_class = []
                     for t_idx, t in enumerate(teachers_list):
@@ -282,13 +318,9 @@ if uploaded_file:
                 for t_idx, t in enumerate(teachers_list):
                     if 'Ek Görevli' in str(t['Rol']):
                         for c_idx in range(len(classes_list)):
-                            lessons_in_class = []
-                            for d in days:
-                                for s in sessions:
-                                    lessons_in_class.append(x[(t_idx, c_idx, d, s)])
-                            model.Add(sum(lessons_in_class) <= 1)
+                            model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
-                # 8. Vardiya Kısıtlaması
+                # Vardiya Kısıtlaması
                 for t_idx, t in enumerate(teachers_list):
                     role = str(t['Rol'])
                     if 'Danışman' in role or 'Ek Görevli' in role:
@@ -303,33 +335,13 @@ if uploaded_file:
                 objective = []
                 objective.append(sum(x.values()) * 100000)
 
-                # A. Danışmanlık 3 Gün Hedefi
+                # A. Hedef Doldurma
                 for t_idx, t in enumerate(teachers_list):
-                    for c_idx in range(len(classes_list)):
-                        is_adv = advisor_var[(t_idx, c_idx)]
-                        for d in days:
-                            for s in sessions:
-                                is_teaching_as_adv = model.NewBoolVar(f'taa_{t_idx}_{c_idx}_{d}')
-                                model.Add(is_teaching_as_adv == 1).OnlyEnforceIf([x[(t_idx, c_idx, d, s)], is_adv])
-                                objective.append(is_teaching_as_adv * 5000000)
-
-                # B. Rol Önceliği
-                for t_idx, t in enumerate(teachers_list):
-                    if 'Danışman' in str(t['Rol']):
-                        assigned_somewhere = sum([advisor_var[(t_idx, c)] for c in range(len(classes_list))])
-                        objective.append(assigned_somewhere * 1000000)
-                    elif 'Destek' in str(t['Rol']):
-                        assigned_somewhere = sum([advisor_var[(t_idx, c)] for c in range(len(classes_list))])
-                        objective.append(assigned_somewhere * -500000)
-
-                # C. Hedef Doldurma
-                for t_idx, t in enumerate(teachers_list):
-                    real_target = adjusted_targets[t_idx]
                     current_load = sum([x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions])
                     if 'Danışman' in str(t['Rol']): objective.append(current_load * 5000000)
                     else: objective.append(current_load * 5000)
 
-                # D. Zaman/Yasak/Yetkinlik/Partner
+                # B. Zaman/Yasak/Yetkinlik
                 for t_idx, t in enumerate(teachers_list):
                     pref = str(t['Tercih (Sabah/Öğle)'])
                     if pref == "Sabah":
@@ -350,9 +362,7 @@ if uploaded_file:
                         for c_idx, c in enumerate(classes_list):
                             if c['Seviye'] not in allowed:
                                 for d in days:
-                                    for s in sessions:
-                                        # BURASI DÜZELTİLDİ: c -> c_idx
-                                        objective.append(x[(t_idx, c_idx, d, s)] * -40000000)
+                                    for s in sessions: objective.append(x[(t_idx, c_idx, d, s)] * -40000000)
                     
                     unw = str(t['İstenmeyen Partner'])
                     if len(unw) > 2:
@@ -368,13 +378,16 @@ if uploaded_file:
                                 model.Add(t1 + t2 < 2).OnlyEnforceIf(conflict.Not())
                                 objective.append(conflict * -3000000)
                 
-                # H. Destek Pazartesi
+                # C. Rol Önceliği (Danışman olması gereken Danışman olsun)
                 for t_idx, t in enumerate(teachers_list):
-                    if 'Destek' in str(t['Rol']):
-                        for c in range(len(classes_list)):
-                            for s in sessions: objective.append(x[(t_idx, c, 0, s)] * -100000)
+                    if 'Danışman' in str(t['Rol']):
+                        assigned_somewhere = sum([advisor_var[(t_idx, c)] for c in range(len(classes_list))])
+                        objective.append(assigned_somewhere * 1000000)
+                    elif 'Destek' in str(t['Rol']):
+                        assigned_somewhere = sum([advisor_var[(t_idx, c)] for c in range(len(classes_list))])
+                        objective.append(assigned_somewhere * -500000) # Destek danışman olursa puan düşsün (son çare)
 
-                # I. Native Dağılımı
+                # D. Native Dağılımı
                 for c_idx, c_data in enumerate(classes_list):
                     for t_idx, t in enumerate(teachers_list):
                         if 'Native' in str(t['Rol']):
@@ -393,7 +406,6 @@ if uploaded_file:
                 if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                     st.balloons()
                     
-                    violations = []
                     res_data = []
                     native_names = [t['Ad Soyad'] for t in teachers_list if 'Native' in str(t['Rol'])]
                     
@@ -401,13 +413,12 @@ if uploaded_file:
                         c_name = c['Sınıf Adı']
                         s_req = c['Zaman Kodu']
                         
-                        # ATANAN DANIŞMANI BUL
+                        # ATANAN DANIŞMAN
                         assigned_advisor_idx = None
                         for t_idx in range(len(teachers_list)):
                             if solver.Value(advisor_var[(t_idx, c_idx)]) == 1:
                                 assigned_advisor_idx = t_idx
                                 break
-                        
                         advisor_name = teachers_list[assigned_advisor_idx]['Ad Soyad'] if assigned_advisor_idx is not None else "Atanamadı"
 
                         row = {
@@ -433,15 +444,15 @@ if uploaded_file:
                         if diff > 0: stat = f"+{diff} Fazla"
                         elif diff < 0: stat = f"{diff} Eksik"
                         
+                        # Tıraşlanan hedef mi?
                         real_target = adjusted_targets[t_idx]
                         if real_target < original_target and assigned == real_target:
-                            stat = f"{diff} Eksik (Yasaklı Günlerden Dolayı Max)"
+                            stat = f"Tamam ({original_target-real_target} saat kırpıldı)"
 
-                        stats.append({"Hoca Adı": t['Ad Soyad'], "Hedef": original_target, "Atanan": assigned, "Durum": stat})
+                        stats.append({"Hoca Adı": t['Ad Soyad'], "Hedef (İlk)": original_target, "Atanan": assigned, "Durum": stat})
 
                     df_res = pd.DataFrame(res_data)
                     df_stats = pd.DataFrame(stats)
-                    df_violations = pd.DataFrame() 
 
                     st.success("✅ Kusursuz Çözüm!")
                     st.dataframe(df_res)
@@ -491,7 +502,7 @@ if uploaded_file:
                             excel_r = r + 1
                             stat = str(row['Durum'])
                             ws_stat.write(excel_r, 0, row['Hoca Adı'], fmt_default)
-                            ws_stat.write(excel_r, 1, row['Hedef'], fmt_default)
+                            ws_stat.write(excel_r, 1, row['Hedef (İlk)'], fmt_default)
                             ws_stat.write(excel_r, 2, row['Atanan'], fmt_default)
                             ws_stat.write(excel_r, 3, stat, fmt_stat_missing if "Eksik" in stat else fmt_stat_ok)
 
