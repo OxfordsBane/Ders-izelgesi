@@ -5,13 +5,16 @@ import io
 import multiprocessing
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V46 - Esnek Kurtarıcı", layout="wide")
+st.set_page_config(page_title="Ders Programı V47 - Final Mantık", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V46 - Esnek Çözüm Modu)")
+st.title("🛡️ Hazırlık Ders Programı (V47 - Tam Karar Ağacı)")
 st.info("""
-**Kurtarıcı Mod Devrede:**
-Bu sürüm 'Çözüm Bulunamadı' hatasını engellemek için en sert kuralları (Tek Vardiya, Native Sınırı) **'Ceza Puanı'** sistemine çevirdi.
-Program artık çökmez; ancak kuralların delindiği yerleri 'İhlal Raporu' sekmesinde gösterir.
+**Sistemin Çalışma Mantığı:**
+1. 👑 **Danışman Yerleşimi:** - **Standart Sınıf:** Hoca 3+ gün müsaitse **En Az 3 Gün**, 2 gün müsaitse **2 Gün** o sınıftadır.
+   - **PreFaculty:** Sadece **Pazartesi** zorunludur, diğer günler serbesttir.
+2. 🌍 **Native Kuralı:** Native hocalar bir sınıfa haftada **yalnızca 1 kez** girer.
+3. ⛔ **Tek Vardiya:** Hiçbir hoca aynı gün Sabah+Öğle çalışmaz.
+4. ⚖️ **Adil Dağıtım:** Kapasite sıkışırsa hedeflerden 1 saat traşlanır, kimse boş kalmaz.
 """)
 
 # --- YAN PANEL ---
@@ -117,15 +120,9 @@ def analyze_data(teachers, classes):
             if not target_class:
                 errors.append(f"❌ **{t['Ad Soyad']}**: Atandığı '{fixed_class}' sınıfı sistemde yok.")
             
+            # Danışman Pazartesi Yasaklıysa HATA VER
             if "Pazartesi" in forbidden_str:
                 errors.append(f"💣 **KRİTİK ({t['Ad Soyad']}):** '{fixed_class}' sınıfına sabitlenmiş ama Pazartesi yasaklı. Danışman Pazartesi okulda olmak zorundadır.")
-
-            forbidden_count = len(forbidden_str.split(',')) if t['Yasaklı Günler'] else 0
-            available_days = 5 - forbidden_count
-            is_prefac = "PreFaculty" in (target_class['Seviye'] if target_class else "")
-            
-            if available_days < 3 and "DANIŞMAN" in role and not is_prefac:
-                warnings.append(f"⚠️ **{t['Ad Soyad']}**: Danışman ama sadece {available_days} gün müsait. 3 gün kuralı tutmayabilir.")
 
     return errors, warnings
 
@@ -156,6 +153,7 @@ if uploaded_file:
             if c['Seviye'] == 'PreFaculty': total_slots_needed += 3 
             else: total_slots_needed += 5
         
+        # Kapasite Hesabı (Tek Vardiya = Max 5)
         raw_demand = 0
         for t in teachers_list:
             forbidden_cnt = len(str(t['Yasaklı Günler']).split(',')) if t['Yasaklı Günler'] else 0
@@ -172,7 +170,7 @@ if uploaded_file:
             reduce_mode = True
 
         if st.button("🚀 Programı Oluştur"):
-            with st.spinner("Esnek mod devrede... Çözüm aranıyor..."):
+            with st.spinner("Hesaplanıyor... (Tüm kurallar devrede...)"):
                 
                 model = cp_model.CpModel()
                 days = range(5)
@@ -200,7 +198,7 @@ if uploaded_file:
                                         model.Add(x[(t_idx, c_idx, d, s)] == 0)
                                 model.Add(advisor_var[(t_idx, c_idx)] == 0)
 
-                # --- 2. DANIŞMANLIK İSKELETİ ---
+                # --- 2. DANIŞMANLIK TEKİLLİĞİ ---
                 for c in range(len(classes_list)):
                     model.Add(sum(advisor_var[(t, c)] for t in range(len(teachers_list))) == 1)
                 for t in range(len(teachers_list)):
@@ -218,44 +216,46 @@ if uploaded_file:
                         if fixed_c_idx is not None:
                             model.Add(advisor_var[(t_idx, fixed_c_idx)] == 1)
 
+                # --- 3. DANIŞMANLIK KURALLARI (KARAR AĞACI) ---
                 for t_idx, t_data in enumerate(teachers_list):
                     forbidden_days = str(t_data['Yasaklı Günler'])
-                    available_days = 5 - (len(forbidden_days.split(',')) if t_data['Yasaklı Günler'] else 0)
+                    forbidden_count = len(forbidden_days.split(',')) if t_data['Yasaklı Günler'] else 0
+                    available_days = 5 - forbidden_count
                     
                     for c_idx, c_data in enumerate(classes_list):
                         is_adv = advisor_var[(t_idx, c_idx)]
                         req_s = c_data['Zaman Kodu']
                         
-                        # Pazartesi Kuralı
+                        # A. Pazartesi Kuralı (Tüm Danışmanlar İçin)
                         if "Pazartesi" not in forbidden_days:
                             model.Add(x[(t_idx, c_idx, 0, req_s)] == 1).OnlyEnforceIf(is_adv)
                         
-                        # 3 Gün Kuralı (Soft - Puanla Teşvik, Zorlama yok ki çökmesin)
-                        # Ama 2 gün zorunlu kalsın
-                        if c_data['Seviye'] != "PreFaculty" and available_days >= 2:
+                        # B. Gün Sayısı Kuralları
+                        if c_data['Seviye'] == "PreFaculty":
+                            # PreFaculty: Kural Yok (Pazartesi dışında serbest)
+                            pass 
+                        
+                        else: # Standart Sınıflar (A1-B2)
                             days_in_class = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
-                            model.Add(days_in_class >= 2).OnlyEnforceIf(is_adv)
+                            
+                            if available_days >= 3:
+                                # 3+ Gün Müsaitse -> En Az 3 Gün Gir
+                                model.Add(days_in_class >= 3).OnlyEnforceIf(is_adv)
+                            elif available_days == 2:
+                                # 2 Gün Müsaitse -> 2 Gün (Tam Kapasite) Gir
+                                model.Add(days_in_class >= 2).OnlyEnforceIf(is_adv)
+                            # 1 gün müsaitse sadece Pazartesi girer (yukarıda tanımlı)
 
-                # --- 3. NATIVE KISITLAMASI (ESNEK) ---
-                objective_soft = []
-                
+                # --- 4. NATIVE KISITLAMASI ---
                 for t_idx, t in enumerate(teachers_list):
                     if 'Native' in str(t['Rol']):
                         for c_idx in range(len(classes_list)):
                             is_not_advisor = advisor_var[(t_idx, c_idx)].Not()
                             class_total = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
-                            
-                            # Max 1 kuralını "Soft" yapıyoruz. Eğer 2 olursa ceza.
-                            is_violation = model.NewBoolVar(f'native_vio_{t_idx}_{c_idx}')
-                            model.Add(class_total > 1).OnlyEnforceIf(is_violation)
-                            model.Add(class_total <= 1).OnlyEnforceIf(is_violation.Not())
-                            
-                            # Danışman değilse ve ihlal varsa büyük ceza
-                            # (is_not_advisor AND is_violation) -> Ceza
-                            # Linearize etmeye gerek yok, objective'e violation'ı ekle
-                            objective_soft.append(is_violation * -20000000)
+                            # Native bir sınıfa Max 1 kez girer
+                            model.Add(class_total <= 1).OnlyEnforceIf(is_not_advisor)
 
-                # --- 4. GENEL KISITLAMALAR ---
+                # --- 5. GENEL KISITLAMALAR ---
                 for c_idx, c_data in enumerate(classes_list):
                     req_session = c_data['Zaman Kodu']
                     other_session = 1 - req_session
@@ -263,6 +263,7 @@ if uploaded_file:
                         if allow_empty_slots:
                             model.Add(sum(x[(t, c_idx, d, req_session)] for t in range(len(teachers_list))) <= 1)
                         else:
+                            # PreFaculty Per/Cum Kapalı
                             if c_data['Seviye'] == "PreFaculty" and d >= 3:
                                 model.Add(sum(x[(t, c_idx, d, req_session)] for t in range(len(teachers_list))) == 0)
                             else:
@@ -274,7 +275,7 @@ if uploaded_file:
                         for s in sessions:
                             model.Add(sum(x[(t, c, d, s)] for c in range(len(classes_list))) <= 1)
                 
-                # --- 5. PREFACULTY KAPAMA ---
+                # PreFaculty Kapama
                 for c_idx, c_data in enumerate(classes_list):
                     if c_data['Seviye'] == "PreFaculty":
                         for t_idx in range(len(teachers_list)):
@@ -287,6 +288,8 @@ if uploaded_file:
                 for t_idx, t in enumerate(teachers_list):
                     original_target = int(t['Hedef Ders Sayısı'])
                     forbidden_count = len(str(t['Yasaklı Günler']).split(',')) if t['Yasaklı Günler'] else 0
+                    
+                    # TEK VARDİYA -> Max 5
                     max_possible = 5 - forbidden_count
                     
                     if reduce_mode and original_target > 2:
@@ -303,6 +306,7 @@ if uploaded_file:
                             for s in sessions: total_assignments.append(x[(t_idx, c, d, s)])
                     
                     model.Add(sum(total_assignments) <= real_target)
+                    # Hiç boş kalmasın
                     if real_target > 0:
                         model.Add(sum(total_assignments) >= 1)
 
@@ -323,7 +327,7 @@ if uploaded_file:
                                 for d in days:
                                     for s in sessions: model.Add(x[(t_idx, c_idx, d, s)] == 0)
 
-                # Native Tekilliği (Sınıfta Aynı Anda)
+                # Native Tekilliği (Aynı Anda)
                 for c_idx, c_data in enumerate(classes_list):
                     natives_in_class = []
                     for t_idx, t in enumerate(teachers_list):
@@ -339,26 +343,18 @@ if uploaded_file:
                         for c_idx in range(len(classes_list)):
                             model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
-                # --- 7. TEK VARDİYA (ESNEK/SOFT) ---
-                # "Yapabiliyorsan tek vardiya yap, yapamıyorsan çok büyük ceza al ama çöz"
+                # --- 7. TEK VARDİYA (KESİN) ---
                 for t_idx, t in enumerate(teachers_list):
                     for d in days:
                         is_morning = model.NewBoolVar(f'm_{t_idx}_{d}')
                         is_afternoon = model.NewBoolVar(f'a_{t_idx}_{d}')
                         model.AddMaxEquality(is_morning, [x[(t_idx, c, d, 0)] for c in range(len(classes_list))])
                         model.AddMaxEquality(is_afternoon, [x[(t_idx, c, d, 1)] for c in range(len(classes_list))])
-                        
-                        # İkisi de 1 ise CEZA
-                        double_shift = model.NewBoolVar(f'dbl_{t_idx}_{d}')
-                        model.Add(is_morning + is_afternoon > 1).OnlyEnforceIf(double_shift)
-                        model.Add(is_morning + is_afternoon <= 1).OnlyEnforceIf(double_shift.Not())
-                        
-                        objective_soft.append(double_shift * -50000000)
+                        model.Add(is_morning + is_afternoon <= 1)
 
                 # --- PUANLAMA ---
                 objective = []
                 objective.append(sum(x.values()) * 100000)
-                objective.extend(objective_soft)
 
                 # Hedef Doldurma
                 for t_idx, t in enumerate(teachers_list):
@@ -409,22 +405,12 @@ if uploaded_file:
                             lvl = c_data['Seviye']
                             score = 10000 if lvl == "A2" else (50000 if lvl == "B1" else (100000 if lvl == "B2" else 0))
                             objective.append(is_present * score)
-                
-                # Danışman 3 gün (Soft)
-                for t_idx, t in enumerate(teachers_list):
-                    for c_idx in range(len(classes_list)):
-                        is_adv = advisor_var[(t_idx, c_idx)]
-                        for d in days:
-                            for s in sessions:
-                                is_teaching_as_adv = model.NewBoolVar(f'taa_{t_idx}_{c_idx}_{d}')
-                                model.Add(is_teaching_as_adv == 1).OnlyEnforceIf([x[(t_idx, c_idx, d, s)], is_adv])
-                                objective.append(is_teaching_as_adv * 5000000)
 
                 # --- ÇÖZÜM ---
                 model.Maximize(sum(objective))
                 solver = cp_model.CpSolver()
                 solver.parameters.max_time_in_seconds = 120.0
-                solver.parameters.num_search_workers = 8 
+                solver.parameters.num_search_workers = 8
                 
                 status = solver.Solve(model)
 
@@ -432,7 +418,6 @@ if uploaded_file:
                     st.balloons()
                     
                     res_data = []
-                    violations = []
                     native_names = [t['Ad Soyad'] for t in teachers_list if 'Native' in str(t['Rol'])]
                     
                     for c_idx, c in enumerate(classes_list):
@@ -458,25 +443,6 @@ if uploaded_file:
                                 for t_idx, t in enumerate(teachers_list):
                                     if solver.Value(x[(t_idx, c_idx, d_idx, s_req)]) == 1:
                                         val = t['Ad Soyad']
-                                        # İhlal Kontrolü
-                                        # 1. Tek Vardiya İhlali
-                                        other_s = 1 - s_req
-                                        is_morning_busy = False
-                                        is_afternoon_busy = False
-                                        # O hocanın o günkü diğer oturumlarını kontrol et
-                                        for check_c in range(len(classes_list)):
-                                            if solver.Value(x[(t_idx, check_c, d_idx, other_s)]) == 1:
-                                                if other_s == 0: is_morning_busy = True
-                                                else: is_afternoon_busy = True
-                                        
-                                        if is_morning_busy or is_afternoon_busy: # Zaten şu an derste, demek ki diğerinde de var
-                                            # Bu basit bir kontrol, tam double shift tespiti için daha detaylı bakılabilir
-                                            # Ama burada sadece o gün çift vardiya yapıyor mu diye bakalım
-                                            morning_cnt = sum([solver.Value(x[(t_idx, cc, d_idx, 0)]) for cc in range(len(classes_list))])
-                                            afternoon_cnt = sum([solver.Value(x[(t_idx, cc, d_idx, 1)]) for cc in range(len(classes_list))])
-                                            if morning_cnt > 0 and afternoon_cnt > 0:
-                                                violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Çift Vardiya ({d_name})", "Sınıf": c_name})
-
                                         break
                             row[d_name] = val
                         res_data.append(row)
@@ -499,14 +465,8 @@ if uploaded_file:
 
                     df_res = pd.DataFrame(res_data)
                     df_stats = pd.DataFrame(stats)
-                    df_violations = pd.DataFrame(violations).drop_duplicates() if violations else pd.DataFrame()
 
-                    if not df_violations.empty:
-                        st.warning(f"⚠️ {len(df_violations)} adet kural esnetildi (Çift Vardiya).")
-                        st.table(df_violations)
-                    else:
-                        st.success("✅ Kusursuz Çözüm!")
-
+                    st.success("✅ Kusursuz Çözüm!")
                     st.dataframe(df_res)
                     st.dataframe(df_stats)
 
@@ -514,7 +474,6 @@ if uploaded_file:
                     with pd.ExcelWriter(output_res, engine='xlsxwriter') as writer:
                         df_res.to_excel(writer, index=False, sheet_name="Program")
                         df_stats.to_excel(writer, index=False, sheet_name="Istatistikler")
-                        if not df_violations.empty: df_violations.to_excel(writer, index=False, sheet_name="Ihlal_Raporu")
                         
                         wb = writer.book
                         ws_prog = writer.sheets['Program']
