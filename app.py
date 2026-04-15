@@ -19,6 +19,7 @@ st.sidebar.header("⚙️ Genel Ayarlar")
 max_teachers_per_class = st.sidebar.slider("Sınıf Başına Max Hoca", 1, 6, 3)
 allow_native_advisor = st.sidebar.checkbox("Native Hocalar Danışman Olabilir mi?", value=False)
 allow_empty_slots = st.sidebar.checkbox("Sıkışınca Boş Ders Bırak", value=True)
+allow_native_advisor = st.sidebar.checkbox("Native Hocalar Danışman Olabilir mi?", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🏫 Sınıf ve Zaman Ayarları")
