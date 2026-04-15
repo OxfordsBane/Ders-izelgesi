@@ -5,13 +5,13 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V57 - Dokunulmaz Native", layout="wide")
+st.set_page_config(page_title="Ders Programı V58 - Hiyerarşik Kırpma", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V57 - Native Korumalı)")
+st.title("🛡️ Hazırlık Ders Programı (V58 - Tam Kararlılık)")
 st.info("""
-**V57 Güncellemesi (Adil Kırpma):**
-Eğer kapasite fazlası varsa; dersler ilk olarak **Ek Görevli** hocalardan, ardından **Destek** hocalarından kırpılır. 
-**Native** hocalar koruma altındadır ve saatlerinden asla kesinti yapılmaz.
+**V58 Güncellemesi (Karakter Bug'ı Çözümü):**
+Türkçe i/İ harflerinden kaynaklanan rol tanıma hatası giderildi. 
+Fazla dersler artık **KESİNLİKLE önce Ek Görevli**, sonra **Destek** hocalarından kırpılır. Native hocalar koruma altındadır.
 """)
 
 # --- YAN PANEL ---
@@ -74,6 +74,10 @@ def generate_template():
 st.sidebar.markdown("---")
 st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(), "ogretmen_listesi.xlsx")
 
+# --- GÜVENLİ ROL OKUYUCU (TÜRKÇE KARAKTER BUG'I ÇÖZÜMÜ) ---
+def get_role(t):
+    return str(t['Rol']).upper().replace('İ', 'I').replace('i', 'I').replace('ı', 'I')
+
 # --- ANALİZ ---
 def analyze_data(teachers, classes):
     warnings = []
@@ -81,14 +85,14 @@ def analyze_data(teachers, classes):
     
     assigned_fixed = []
     for t in teachers:
-        role = str(t['Rol']).upper()
+        role = get_role(t)
         fixed_class = str(t['Sabit Sınıf']).strip()
         forbidden_str = str(t['Yasaklı Günler'])
 
         if fixed_class:
             if not allow_native_advisor and "NATIVE" in role:
                  errors.append(f"🛑 **{t['Ad Soyad']}**: Native hocaya sabit sınıf verilmesi engellendi.")
-            if "EK GÖREVLİ" in role:
+            if "EK GÖREVL" in role:
                  errors.append(f"🛑 **{t['Ad Soyad']}**: Ek Görevli rolündekilere sabit sınıf verilemez.")
 
             target_class = next((c for c in classes if c['Sınıf Adı'] == fixed_class), None)
@@ -161,10 +165,10 @@ if uploaded_file:
         if excess_capacity > 0:
             st.info(f"ℹ️ Hoca kapasitesi {excess_capacity} saat fazla. Ek Görevli ve Destek hocalarından adil kırpma yapılacaktır (Native Hariç).")
             
-            ek_idx = [i for i, t in enumerate(teachers_list) if 'EK GÖREVLİ' in str(t['Rol']).upper()]
-            destek_idx = [i for i, t in enumerate(teachers_list) if 'DESTEK' in str(t['Rol']).upper()]
-            # Native hocaları tamamen korumaya alıyoruz (Listeye eklemiyoruz)
-            other_idx = [i for i, t in enumerate(teachers_list) if i not in ek_idx and i not in destek_idx and 'NATIVE' not in str(t['Rol']).upper()]
+            # i/İ sorununu çözen yeni get_role ile index tespiti
+            ek_idx = [i for i, t in enumerate(teachers_list) if 'EK GÖREVL' in get_role(t)]
+            destek_idx = [i for i, t in enumerate(teachers_list) if 'DESTEK' in get_role(t)]
+            other_idx = [i for i, t in enumerate(teachers_list) if i not in ek_idx and i not in destek_idx and 'NATIVE' not in get_role(t)]
 
             exc = excess_capacity
             while exc > 0:
@@ -264,20 +268,21 @@ if uploaded_file:
                             model.Add(advisor_var[(t_idx, fixed_c_idx)] == 1)
 
                 for t_idx, t in enumerate(teachers_list):
-                    if 'Ek Görevli' in str(t['Rol']):
+                    role = get_role(t)
+                    if 'EK GÖREVL' in role:
                         for c in range(len(classes_list)): model.Add(advisor_var[(t_idx, c)] == 0)
-                    if not allow_native_advisor and 'Native' in str(t['Rol']):
+                    if not allow_native_advisor and 'NATIVE' in role:
                         for c in range(len(classes_list)): model.Add(advisor_var[(t_idx, c)] == 0)
 
                 for t_idx, t in enumerate(teachers_list):
-                    if 'Native' in str(t['Rol']):
+                    if 'NATIVE' in get_role(t):
                         for c_idx, c_data in enumerate(classes_list):
                             if c_data['Seviye'] == 'A1':
                                 for d in days:
                                     for s in sessions: model.Add(x[(t_idx, c_idx, d, s)] == 0)
 
                 for t_idx, t in enumerate(teachers_list):
-                    if 'Ek Görevli' in str(t['Rol']):
+                    if 'EK GÖREVL' in get_role(t):
                         for c_idx in range(len(classes_list)):
                             model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
@@ -321,7 +326,7 @@ if uploaded_file:
 
                 # NATIVE SINIRI (Ceza)
                 for t_idx, t in enumerate(teachers_list):
-                    if 'NATIVE' in str(t['Rol']).upper():
+                    if 'NATIVE' in get_role(t):
                         for c_idx in range(len(classes_list)):
                             class_total = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
                             is_violation = model.NewBoolVar(f'ntv_vio_{t_idx}_{c_idx}')
@@ -331,7 +336,7 @@ if uploaded_file:
                 # NATIVE ŞELALESİ (B2 > B1 > A2 > PreFaculty Puanlaması)
                 for c_idx, c_data in enumerate(classes_list):
                     for t_idx, t in enumerate(teachers_list):
-                        if 'NATIVE' in str(t['Rol']).upper():
+                        if 'NATIVE' in get_role(t):
                             is_present = model.NewBoolVar(f'ntv_score_{t_idx}_{c_idx}')
                             model.AddMaxEquality(is_present, [x[(t_idx, c_idx, d, s)] for d in days for s in sessions])
                             lvl = c_data['Seviye']
@@ -380,11 +385,11 @@ if uploaded_file:
                     st.balloons()
                     res_data = []
                     violations = []
-                    native_names = [t['Ad Soyad'] for t in teachers_list if 'NATIVE' in str(t['Rol']).upper()]
+                    native_names = [t['Ad Soyad'] for t in teachers_list if 'NATIVE' in get_role(t)]
 
                     # NATIVE BOŞTA KALMA KONTROLÜ
                     for t_idx, t in enumerate(teachers_list):
-                        if 'NATIVE' in str(t['Rol']).upper():
+                        if 'NATIVE' in get_role(t):
                             assigned = sum([solver.Value(x[(t_idx, c, d, s)]) for c in range(len(classes_list)) for d in days for s in sessions])
                             real_target = adjusted_targets[t_idx]
                             if assigned < real_target:
@@ -459,7 +464,6 @@ if uploaded_file:
                         wb = writer.book
                         ws_prog = writer.sheets['Program']
                         
-                        # --- EXCEL GÖRSEL OPTİMİZASYON ---
                         base_fmt = {'border': 1, 'align': 'center', 'valign': 'vcenter'}
                         fmt_default = wb.add_format(base_fmt)
                         
