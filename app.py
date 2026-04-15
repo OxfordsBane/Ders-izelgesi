@@ -5,13 +5,13 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V56 - Native Şelalesi", layout="wide")
+st.set_page_config(page_title="Ders Programı V57 - Dokunulmaz Native", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V56 - Native Şelale Modu)")
+st.title("🛡️ Hazırlık Ders Programı (V57 - Native Korumalı)")
 st.info("""
-**V56 Güncellemesi (Native Önceliği):**
-Native hocalar artık rastgele atanmaz. Matematiksel olarak kesin bir öncelik sırasıyla yerleştirilirler: **B2 > B1 > A2 > PreFaculty**. 
-Eğer tüm sınıflar dolar ve Native hoca açıkta kalırsa, bu durum İhlal Raporunda özel olarak belirtilir.
+**V57 Güncellemesi (Adil Kırpma):**
+Eğer kapasite fazlası varsa; dersler ilk olarak **Ek Görevli** hocalardan, ardından **Destek** hocalarından kırpılır. 
+**Native** hocalar koruma altındadır ve saatlerinden asla kesinti yapılmaz.
 """)
 
 # --- YAN PANEL ---
@@ -154,16 +154,17 @@ if uploaded_file:
         col3.metric("Öğle İhtiyacı", afternoon_needs)
         col4.metric("Öğle Kapasitesi", f"{afternoon_cap} (+{farketmez_cap})")
 
-        # HİYERARŞİK KIRPMA MANTIĞI
+        # HİYERARŞİK KIRPMA MANTIĞI (NATIVE KORUMALI)
         adjusted_targets = list(base_targets)
         excess_capacity = raw_demand - total_slots_needed
 
         if excess_capacity > 0:
-            st.info(f"ℹ️ Hoca kapasitesi toplamda {excess_capacity} saat fazla. Sırasıyla 'Ek Görevli' ve 'Destek' hocalarının hedeflerinden adil kırpma yapılacaktır.")
+            st.info(f"ℹ️ Hoca kapasitesi {excess_capacity} saat fazla. Ek Görevli ve Destek hocalarından adil kırpma yapılacaktır (Native Hariç).")
             
             ek_idx = [i for i, t in enumerate(teachers_list) if 'EK GÖREVLİ' in str(t['Rol']).upper()]
             destek_idx = [i for i, t in enumerate(teachers_list) if 'DESTEK' in str(t['Rol']).upper()]
-            other_idx = [i for i, t in enumerate(teachers_list) if i not in ek_idx and i not in destek_idx]
+            # Native hocaları tamamen korumaya alıyoruz (Listeye eklemiyoruz)
+            other_idx = [i for i, t in enumerate(teachers_list) if i not in ek_idx and i not in destek_idx and 'NATIVE' not in str(t['Rol']).upper()]
 
             exc = excess_capacity
             while exc > 0:
@@ -177,7 +178,7 @@ if uploaded_file:
                             adjusted_targets[i] -= 1
                             exc -= 1
                             trimmed = True
-                    continue 
+                    if trimmed: continue 
                 
                 # 2. Aşama: Destekler
                 if any(adjusted_targets[i] > (1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0) for i in destek_idx):
@@ -188,16 +189,18 @@ if uploaded_file:
                             adjusted_targets[i] -= 1
                             exc -= 1
                             trimmed = True
-                    continue
+                    if trimmed: continue
                 
-                # 3. Aşama: Kalanlar
-                for i in other_idx:
-                    if exc == 0: break
-                    min_req = 1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0
-                    if adjusted_targets[i] > min_req:
-                        adjusted_targets[i] -= 1
-                        exc -= 1
-                        trimmed = True
+                # 3. Aşama: Kalanlar (Sadece Danışmanlar, NATIVE YOK)
+                if any(adjusted_targets[i] > (1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0) for i in other_idx):
+                    for i in other_idx:
+                        if exc == 0: break
+                        min_req = 1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0
+                        if adjusted_targets[i] > min_req:
+                            adjusted_targets[i] -= 1
+                            exc -= 1
+                            trimmed = True
+                    if trimmed: continue
                 
                 if not trimmed: break 
                 
@@ -337,7 +340,7 @@ if uploaded_file:
                             elif lvl == "B1": score = 1000000
                             elif lvl == "A2": score = 100000
                             elif lvl == "PreFaculty": score = 10000
-                            else: score = 0 # A1 zaten yasaklı
+                            else: score = 0 
                             
                             objective.append(is_present * score)
 
