@@ -5,13 +5,12 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V54 - Akıllı Yük Dengeleme", layout="wide")
+st.set_page_config(page_title="Ders Programı V55 - Görsel Optimizasyon", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V54 - Hiyerarşik Kırpma)")
+st.title("🛡️ Hazırlık Ders Programı (V55 - Final Sürüm)")
 st.info("""
-**V54 Güncellemesi (Yük Dengeleme):**
-Eğer öğretmen kapasitesi sınıf ihtiyacından fazlaysa, sistem rastgele ders silmez. 
-Fazlalıklar sırasıyla önce **Ek Görevli**, ardından **Destek** hocalarının hedeflerinden 'Round-Robin' (sırayla birer birer) yöntemiyle adilce kırpılır.
+**V55 Güncellemesi (Görsel Optimizasyon):**
+Excel çıktısındaki Sınıf ve Seviye sütunları kurumsal renk kodlarına göre (A1: Sarı, A2: Turuncu, B1: Bordo, B2: Koyu Yeşil, PreFac: Mor) beyaz kalın fontla (Bold) renklendirildi.
 """)
 
 # --- YAN PANEL ---
@@ -154,7 +153,7 @@ if uploaded_file:
         col3.metric("Öğle İhtiyacı", afternoon_needs)
         col4.metric("Öğle Kapasitesi", f"{afternoon_cap} (+{farketmez_cap})")
 
-        # --- YENİ EKLENEN HİYERARŞİK KIRPMA MANTIĞI ---
+        # HİYERARŞİK KIRPMA MANTIĞI
         adjusted_targets = list(base_targets)
         excess_capacity = raw_demand - total_slots_needed
 
@@ -169,7 +168,7 @@ if uploaded_file:
             while exc > 0:
                 trimmed = False
                 
-                # 1. Aşama: Ek Görevlilerden Round-Robin
+                # 1. Aşama: Ek Görevliler
                 if any(adjusted_targets[i] > 0 for i in ek_idx):
                     for i in ek_idx:
                         if exc == 0: break
@@ -177,9 +176,9 @@ if uploaded_file:
                             adjusted_targets[i] -= 1
                             exc -= 1
                             trimmed = True
-                    continue # Tekrar tara ki 1'den fazla düşürülmesi gerekiyorsa sırayla düşürsün
+                    continue 
                 
-                # 2. Aşama: Desteklerden Round-Robin
+                # 2. Aşama: Destekler
                 if any(adjusted_targets[i] > (1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0) for i in destek_idx):
                     for i in destek_idx:
                         if exc == 0: break
@@ -190,7 +189,7 @@ if uploaded_file:
                             trimmed = True
                     continue
                 
-                # 3. Aşama: Kalanlar (Mecburi Failsafe)
+                # 3. Aşama: Kalanlar
                 for i in other_idx:
                     if exc == 0: break
                     min_req = 1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0
@@ -199,7 +198,7 @@ if uploaded_file:
                         exc -= 1
                         trimmed = True
                 
-                if not trimmed: break # Tüm hocalar 0'a inerse sonsuz döngüyü kır
+                if not trimmed: break 
                 
         elif excess_capacity < 0:
             st.warning(f"⚠️ Kapasite yetersiz. {abs(excess_capacity)} ders saati zorunlu olarak boş kalacak.")
@@ -334,7 +333,6 @@ if uploaded_file:
                         model.Add(is_morning + is_afternoon - 1 <= double_shift)
                         objective.append(double_shift * -50000000)
 
-                # Yeni hesaplanan adil hedefleri modele ekliyoruz
                 for t_idx, t in enumerate(teachers_list):
                     real_target = adjusted_targets[t_idx]
                     total_assignments = sum(x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions)
@@ -427,6 +425,52 @@ if uploaded_file:
                         df_res.to_excel(writer, index=False, sheet_name="Program")
                         df_stats.to_excel(writer, index=False, sheet_name="Istatistikler")
                         if not df_violations.empty: df_violations.to_excel(writer, index=False, sheet_name="Ihlal_Raporu")
+
+                        wb = writer.book
+                        ws_prog = writer.sheets['Program']
+                        
+                        # --- EXCEL GÖRSEL OPTİMİZASYON ---
+                        base_fmt = {'border': 1, 'align': 'center', 'valign': 'vcenter'}
+                        fmt_default = wb.add_format(base_fmt)
+                        
+                        # Seviyelere Özel Kurumsal Renkler (Beyaz ve Kalın Font ile)
+                        fmt_a1 = wb.add_format(dict(base_fmt, bg_color='#FFD700', font_color='white', bold=True))
+                        fmt_a2 = wb.add_format(dict(base_fmt, bg_color='#FFA500', font_color='white', bold=True))
+                        fmt_b1 = wb.add_format(dict(base_fmt, bg_color='#800000', font_color='white', bold=True))
+                        fmt_b2 = wb.add_format(dict(base_fmt, bg_color='#006400', font_color='white', bold=True))
+                        fmt_pre = wb.add_format(dict(base_fmt, bg_color='#604878', font_color='white', bold=True))
+                        
+                        fmt_blue = wb.add_format(dict(base_fmt, bg_color='#ADD8E6')) # Native Hocalar
+
+                        # Bold yazılar sığsın diye sütunları biraz genişletiyoruz
+                        ws_prog.set_column('A:B', 12)
+                        ws_prog.set_column('C:C', 20)
+                        ws_prog.set_column('E:I', 14)
+                        ws_prog.set_row(0, 20)
+
+                        for r, row in df_res.iterrows():
+                            excel_r = r + 1
+                            ws_prog.set_row(excel_r, 20)
+                            lvl = str(row['Seviye'])
+                            
+                            # İlgili seviyeye göre doğru formatı seç
+                            if lvl == "A1": c_fmt = fmt_a1
+                            elif lvl == "A2": c_fmt = fmt_a2
+                            elif lvl == "B1": c_fmt = fmt_b1
+                            elif lvl == "B2": c_fmt = fmt_b2
+                            elif lvl == "PreFaculty": c_fmt = fmt_pre
+                            else: c_fmt = fmt_default
+
+                            ws_prog.write(excel_r, 0, row['Sınıf'], c_fmt)
+                            ws_prog.write(excel_r, 1, row['Seviye'], c_fmt)
+                            ws_prog.write(excel_r, 2, row['Sınıf Danışmanı'], fmt_default)
+                            ws_prog.write(excel_r, 3, row['Zaman'], fmt_default)
+
+                            for c in range(4, 9):
+                                val = row.iloc[c]
+                                f = fmt_blue if val in native_names else fmt_default
+                                ws_prog.write(excel_r, c, val, f)
+
                     st.download_button("Excel İndir", output_res.getvalue(), "ders_programi_final.xlsx")
                 
                 elif status == cp_model.UNKNOWN:
