@@ -2,16 +2,16 @@ import streamlit as st
 import pandas as pd
 from ortools.sat.python import cp_model
 import io
-import multiprocessing
+import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V52 - Kusursuz Motor", layout="wide")
+st.set_page_config(page_title="Ders Programı V53 - Kusursuz Motor", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V52 - Endüstriyel Motor)")
+st.title("🛡️ Hazırlık Ders Programı (V53 - Hata Giderici Sürüm)")
 st.info("""
-**Optimizasyon Güncellemesi:**
-Bu sürümde matematiksel çözücü (solver) hafifletildi. Tüm kurallar puanlama (ödül/ceza) sistemine entegre edildi. 
-Kapasite veya kurallar çelişse dahi sistem asla çökmez, uyamadığı yerleri raporlayıp sonucu mutlaka teslim eder.
+**V53 Güncellemesi:**
+Boş Yetkinlik hücreleri nedeniyle oluşan '0=1' matematiksel çökme sorunu giderildi. 
+Artık Yetkinlik sütunu boş bırakılan öğretmenler 'Tüm Seviyelere Girebilir' olarak kabul ediliyor.
 """)
 
 # --- YAN PANEL ---
@@ -59,14 +59,14 @@ def generate_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_teachers = pd.DataFrame({
-            'Ad Soyad': ['Ahmet Hoca', 'Sarah (Native)', 'Mehmet (Danışman)', 'Ayşe Hoca'],
-            'Rol': ['Destek', 'Native', 'Danışman', 'Ek Görevli'],
-            'Hedef Ders Sayısı': [4, 4, 3, 2],
-            'Tercih (Sabah/Öğle)': ['Sabah', 'Farketmez', 'Sabah', 'Öğle'],
-            'Yasaklı Günler': ['Cuma', 'Çarşamba', '', 'Pazartesi,Salı'],
-            'Sabit Sınıf': ['', '', 'A1.01', ''],
-            'Yetkinlik (Seviyeler)': ['A1,A2,B1', 'Hepsi', 'A1,A2', 'B1,B2'],
-            'İstenmeyen Partner': ['', '', 'Ayşe Hoca', 'Mehmet (Danışman)']
+            'Ad Soyad': ['Ahmet Hoca', 'Sarah (Native)'],
+            'Rol': ['Danışman', 'Native'],
+            'Hedef Ders Sayısı': [4, 4],
+            'Tercih (Sabah/Öğle)': ['Sabah', 'Farketmez'],
+            'Yasaklı Günler': ['', 'Çarşamba'],
+            'Sabit Sınıf': ['A1.01', ''],
+            'Yetkinlik (Seviyeler)': ['Hepsi', 'Hepsi'],
+            'İstenmeyen Partner': ['', '']
         })
         df_teachers.to_excel(writer, sheet_name='Ogretmenler', index=False)
     return output.getvalue()
@@ -78,20 +78,36 @@ st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(
 def analyze_data(teachers, classes):
     warnings = []
     errors = []
+    
+    assigned_fixed = []
     for t in teachers:
         role = str(t['Rol']).upper()
         fixed_class = str(t['Sabit Sınıf']).strip()
         forbidden_str = str(t['Yasaklı Günler'])
 
-        if not allow_native_advisor and "NATIVE" in role and fixed_class:
-             errors.append(f"🛑 **{t['Ad Soyad']}**: Native hocaya sabit sınıf verilmesi engellendi.")
-
+        # Native ve Ek Görevli Sabit Sınıf Kontrolü
         if fixed_class:
+            if not allow_native_advisor and "NATIVE" in role:
+                 errors.append(f"🛑 **{t['Ad Soyad']}**: Native hocaya sabit sınıf verilmesi engellendi.")
+            if "EK GÖREVLİ" in role:
+                 errors.append(f"🛑 **{t['Ad Soyad']}**: Ek Görevli rolündekilere sabit sınıf verilemez.")
+
+            # Sınıf var mı?
             target_class = next((c for c in classes if c['Sınıf Adı'] == fixed_class), None)
             if not target_class:
                 errors.append(f"❌ **{t['Ad Soyad']}**: Atandığı '{fixed_class}' sınıfı sistemde yok.")
+            else:
+                assigned_fixed.append(fixed_class)
+
+            # Pazartesi Uyarısı
             if "Pazartesi" in forbidden_str:
-                warnings.append(f"⚠️ **Uyarı ({t['Ad Soyad']}):** '{fixed_class}' danışmanı ama Pazartesi yasaklı. Sistem Pazartesi ders yazamayabilir.")
+                warnings.append(f"⚠️ **Uyarı ({t['Ad Soyad']}):** '{fixed_class}' danışmanı ama Pazartesi yasaklı.")
+
+    # Çift Atama (Aynı sınıfa 2 hoca sabitlenmiş mi?)
+    dupes = [item for item, count in collections.Counter(assigned_fixed).items() if count > 1]
+    if dupes:
+        errors.append(f"❌ **ÇAKISMA HATASI:** {', '.join(dupes)} sınıfına 1'den fazla öğretmen sabitlenmiş!")
+
     return errors, warnings
 
 # --- ANA PROGRAM ---
@@ -109,7 +125,7 @@ if uploaded_file:
     logic_errors, logic_warnings = analyze_data(teachers_list, classes_list)
 
     if logic_errors:
-        st.error("🛑 Lütfen hataları düzeltin:")
+        st.error("🛑 Lütfen Excel'deki mantıksal hataları düzeltin. Sistem bu hatalarla çalışamaz:")
         for e in logic_errors: st.markdown(e)
     else:
         if logic_warnings:
@@ -125,6 +141,7 @@ if uploaded_file:
             forbidden_cnt = len(str(t['Yasaklı Günler']).split(',')) if str(t['Yasaklı Günler']).strip() else 0
             teacher_cap = min(int(t['Hedef Ders Sayısı']), 5 - forbidden_cnt)
             pref = str(t.get('Tercih (Sabah/Öğle)', 'Farketmez')).strip()
+            if not pref: pref = 'Farketmez'
             
             if pref == 'Sabah': morning_cap += teacher_cap
             elif pref == 'Öğle': afternoon_cap += teacher_cap
@@ -182,9 +199,12 @@ if uploaded_file:
                         # Diğer oturum kesin boş
                         model.Add(sum(x[(t, c_idx, d, other_session)] for t in range(len(teachers_list))) == 0)
 
-                # Yetkinlik
+                # Yetkinlik (V53: BOŞ HÜCRE DÜZELTMESİ YAPILDI)
                 for t_idx, t in enumerate(teachers_list):
-                    allowed = str(t['Yetkinlik (Seviyeler)'])
+                    allowed = str(t.get('Yetkinlik (Seviyeler)', '')).strip()
+                    if allowed == "": 
+                        allowed = "Hepsi" # BOŞ İSE HEPSİ KABUL ET
+                        
                     if "Hepsi" not in allowed:
                         for c_idx, c in enumerate(classes_list):
                             if c['Seviye'] not in allowed:
@@ -192,7 +212,7 @@ if uploaded_file:
                                     for s in sessions: model.Add(x[(t_idx, c_idx, d, s)] == 0)
                                 model.Add(advisor_var[(t_idx, c_idx)] == 0)
 
-                # Danışman Tekilliği (Sınıfın danışmanı olmayabilir, ama 2 tane olamaz)
+                # Danışman Tekilliği (<= 1 olarak esnek)
                 for c in range(len(classes_list)):
                     model.Add(sum(advisor_var[(t, c)] for t in range(len(teachers_list))) <= 1)
                 for t in range(len(teachers_list)):
@@ -200,8 +220,9 @@ if uploaded_file:
 
                 # Sabit Sınıf
                 for t_idx, t in enumerate(teachers_list):
-                    if t['Sabit Sınıf']:
-                        fixed_c_idx = next((i for i, c in enumerate(classes_list) if c['Sınıf Adı'] == str(t['Sabit Sınıf']).strip()), None)
+                    fixed_c_name = str(t['Sabit Sınıf']).strip()
+                    if fixed_c_name:
+                        fixed_c_idx = next((i for i, c in enumerate(classes_list) if c['Sınıf Adı'] == fixed_c_name), None)
                         if fixed_c_idx is not None:
                             model.Add(advisor_var[(t_idx, fixed_c_idx)] == 1)
 
@@ -239,8 +260,7 @@ if uploaded_file:
                         is_adv = advisor_var[(t_idx, c_idx)]
                         req_s = c_data['Zaman Kodu']
 
-                        # A. Pazartesi Kuralı (Tamamen Soft)
-                        # Eğer Danışmansa ve Pazartesi oradaysa büyük ödül alır. Çökme yapmaz.
+                        # A. Pazartesi Kuralı
                         if "Pazartesi" not in forbidden_days:
                             pzt_var = x[(t_idx, c_idx, 0, req_s)]
                             adv_pzt = model.NewBoolVar(f'ap_{t_idx}_{c_idx}')
@@ -248,7 +268,7 @@ if uploaded_file:
                             model.AddImplication(adv_pzt, is_adv)
                             objective.append(adv_pzt * 50000000)
 
-                        # B. 3 Gün Kuralı (Hızlı Doğrusal Mantık)
+                        # B. 3 Gün Kuralı
                         if c_data['Seviye'] != "PreFaculty":
                             days_in_class = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
                             
@@ -276,7 +296,6 @@ if uploaded_file:
                         for c_idx in range(len(classes_list)):
                             class_total = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
                             is_violation = model.NewBoolVar(f'ntv_vio_{t_idx}_{c_idx}')
-                            # Eğer class_total > 1 ise, violation 1 olmak zorunda
                             model.Add(class_total <= 1 + 5 * is_violation)
                             objective.append(is_violation * -20000000)
 
@@ -395,6 +414,6 @@ if uploaded_file:
                     st.download_button("Excel İndir", output_res.getvalue(), "ders_programi_final.xlsx")
                 
                 elif status == cp_model.UNKNOWN:
-                    st.error("⏳ **Zaman Aşımı (Timeout):** Sistem 2 dakika boyunca aradı ancak bu kadar yoğun kural setiyle bir program bulamadı. Hoca kapasitelerini veya esneklikleri artırmayı deneyin.")
+                    st.error("⏳ **Zaman Aşımı (Timeout):** Sistem en ideal çözümü bulmaya çalışırken zorlandı.")
                 else:
-                    st.error("❌ **Çözüm Bulunamadı (Infeasible):** Verdiğiniz kurallar matematiksel olarak %100 birbiriyle çelişiyor.")
+                    st.error("❌ **Çözüm Bulunamadı (Infeasible):** Lütfen Analiz Uyarılarını Kontrol Edin.")
