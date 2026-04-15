@@ -126,9 +126,22 @@ def analyze_data(teachers, classes):
 uploaded_file = st.file_uploader("Öğretmen Listesini Yükle", type=["xlsx"])
 
 if uploaded_file:
-    df_teachers = pd.read_excel(uploaded_file, sheet_name='Ogretmenler').fillna("")
+    try:
+        df_teachers = pd.read_excel(uploaded_file, sheet_name='Ogretmenler').fillna("")
+    except Exception as e:
+        st.error(f"❌ Excel dosyası okunurken hata oluştu. Lütfen 'Ogretmenler' sayfasının varlığından emin olun.")
+        st.stop()
+
     if 'Hedef Ders Sayısı' not in df_teachers.columns and 'Hedef Gün Sayısı' in df_teachers.columns:
         df_teachers.rename(columns={'Hedef Gün Sayısı': 'Hedef Ders Sayısı'}, inplace=True)
+
+    required_columns = ['Ad Soyad', 'Rol', 'Hedef Ders Sayısı', 'Yasaklı Günler', 'Sabit Sınıf', 'Yetkinlik (Seviyeler)']
+    missing_columns = [col for col in required_columns if col not in df_teachers.columns]
+
+    if missing_columns:
+        st.error(f"❌ Yüklenen dosyada eksik sütunlar var: {', '.join(missing_columns)}")
+        st.info("Lütfen şablonu indirip sütun adlarını kontrol edin.")
+        st.stop()
         
     df_classes = create_automated_classes()
     
