@@ -5,12 +5,12 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V59 - Gerçek Şelale", layout="wide")
+st.set_page_config(page_title="Ders Programı V60 - Tercih Motoru", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V59 - Native Sınırı)")
+st.title("🛡️ Hazırlık Ders Programı (V60 - Vardiya Korumalı)")
 st.info("""
-**V59 Güncellemesi (Tek Native Kuralı):**
-Bir sınıfa en fazla **1 farklı Native** öğretmen atanabilir. Bu kural sayesinde Native hocalar aynı sınıfa yığılmaz; kapasite doldukça B2 > B1 > A2 > PreFaculty sırasıyla şelale gibi alt kurlara dağılır.
+**V60 Güncellemesi (Sabah/Öğle Tercihleri):**
+Öğretmenlerin Sabah/Öğle tercihleri matematiksel motora entegre edildi. Sistem mecbur kalmadıkça (Farketmez havuzu bitmedikçe) ters vardiyaya atama yapmaz. Yapmak zorunda kalırsa bunu İhlal Raporunda şeffafça gösterir.
 """)
 
 # --- YAN PANEL ---
@@ -73,9 +73,12 @@ def generate_template():
 st.sidebar.markdown("---")
 st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(), "ogretmen_listesi.xlsx")
 
-# --- GÜVENLİ ROL OKUYUCU ---
+# --- GÜVENLİ STRİNG OKUYUCULAR ---
 def get_role(t):
     return str(t['Rol']).upper().replace('İ', 'I').replace('i', 'I').replace('ı', 'I')
+
+def get_pref(t):
+    return str(t.get('Tercih (Sabah/Öğle)', 'Farketmez')).upper().replace('Ö', 'O').replace('ö', 'O').replace('Ğ', 'G').replace('ğ', 'G').strip()
 
 # --- ANALİZ ---
 def analyze_data(teachers, classes):
@@ -143,10 +146,9 @@ if uploaded_file:
             teacher_cap = min(int(t['Hedef Ders Sayısı']), 5 - forbidden_cnt)
             base_targets.append(teacher_cap)
             
-            pref = str(t.get('Tercih (Sabah/Öğle)', 'Farketmez')).strip()
-            if not pref: pref = 'Farketmez'
-            if pref == 'Sabah': morning_cap += teacher_cap
-            elif pref == 'Öğle': afternoon_cap += teacher_cap
+            pref = get_pref(t)
+            if 'SABAH' in pref: morning_cap += teacher_cap
+            elif 'OGLE' in pref: afternoon_cap += teacher_cap
             else: farketmez_cap += teacher_cap
 
         raw_demand = sum(base_targets)
@@ -172,7 +174,6 @@ if uploaded_file:
             while exc > 0:
                 trimmed = False
                 
-                # 1. Aşama: Ek Görevliler
                 if any(adjusted_targets[i] > 0 for i in ek_idx):
                     for i in ek_idx:
                         if exc == 0: break
@@ -182,7 +183,6 @@ if uploaded_file:
                             trimmed = True
                     if trimmed: continue 
                 
-                # 2. Aşama: Destekler
                 if any(adjusted_targets[i] > (1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0) for i in destek_idx):
                     for i in destek_idx:
                         if exc == 0: break
@@ -193,7 +193,6 @@ if uploaded_file:
                             trimmed = True
                     if trimmed: continue
                 
-                # 3. Aşama: Kalanlar (Sadece Danışmanlar, NATIVE YOK)
                 if any(adjusted_targets[i] > (1 if str(teachers_list[i]['Sabit Sınıf']).strip() else 0) for i in other_idx):
                     for i in other_idx:
                         if exc == 0: break
@@ -210,7 +209,7 @@ if uploaded_file:
             st.warning(f"⚠️ Kapasite yetersiz. {abs(excess_capacity)} ders saati zorunlu olarak boş kalacak.")
 
         if st.button("🚀 Programı Oluştur"):
-            with st.spinner("Matematiksel model kuruluyor... (Native Şelalesi devrede)"):
+            with st.spinner("Matematiksel model kuruluyor... (Tercih Motoru Devrede)"):
                 model = cp_model.CpModel()
                 days = range(5)
                 day_names = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"]
@@ -284,7 +283,7 @@ if uploaded_file:
                         for c_idx in range(len(classes_list)):
                             model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
-                # --- 2. PUANLI KURALLAR VE NATIVE ŞELALESİ ---
+                # --- 2. PUANLI KURALLAR VE ŞELALELER ---
                 objective = []
                 objective.append(sum(x.values()) * 100000000)
 
@@ -306,7 +305,6 @@ if uploaded_file:
                             
                             objective.append(is_present * score)
                             
-                    # BİR SINIFA EN FAZLA 1 FARKLI NATIVE GİREBİLİR KURALI
                     if native_in_this_class:
                         model.Add(sum(native_in_this_class) <= 1)
 
@@ -344,7 +342,21 @@ if uploaded_file:
                             model.AddImplication(adv_3days, is_adv)
                             objective.append(adv_3days * 20000000)
 
-                # NATIVE SINIRI (1 Sınıfa max 1 saat)
+                # SABAH / ÖĞLE TERCİH CEZALARI (YENİ EKLENDİ)
+                for t_idx, t in enumerate(teachers_list):
+                    pref = get_pref(t)
+                    if 'SABAH' in pref:
+                        # Öğle (1) atamalarına ceza
+                        for c in range(len(classes_list)):
+                            for d in days:
+                                objective.append(x[(t_idx, c, d, 1)] * -10000000)
+                    elif 'OGLE' in pref:
+                        # Sabah (0) atamalarına ceza
+                        for c in range(len(classes_list)):
+                            for d in days:
+                                objective.append(x[(t_idx, c, d, 0)] * -10000000)
+
+                # NATIVE SINIRI (Ceza)
                 for t_idx, t in enumerate(teachers_list):
                     if 'NATIVE' in get_role(t):
                         for c_idx in range(len(classes_list)):
@@ -422,6 +434,14 @@ if uploaded_file:
                                 for t_idx, t in enumerate(teachers_list):
                                     if solver.Value(x[(t_idx, c_idx, d_idx, s_req)]) == 1:
                                         val = t['Ad Soyad']
+                                        
+                                        # Sabah/Öğle Tercih İhlali Dedektifi
+                                        pref = get_pref(t)
+                                        if 'SABAH' in pref and s_req == 1:
+                                            violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Ters Vardiya (Tercih: Sabah)", "Sınıf": c_name})
+                                        elif 'OGLE' in pref and s_req == 0:
+                                            violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Ters Vardiya (Tercih: Öğle)", "Sınıf": c_name})
+
                                         m = sum([solver.Value(x[(t_idx, cc, d_idx, 0)]) for cc in range(len(classes_list))])
                                         a = sum([solver.Value(x[(t_idx, cc, d_idx, 1)]) for cc in range(len(classes_list))])
                                         if m > 0 and a > 0:
