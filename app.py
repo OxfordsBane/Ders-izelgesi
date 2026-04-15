@@ -5,12 +5,13 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V55 - Görsel Optimizasyon", layout="wide")
+st.set_page_config(page_title="Ders Programı V56 - Native Şelalesi", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V55 - Final Sürüm)")
+st.title("🛡️ Hazırlık Ders Programı (V56 - Native Şelale Modu)")
 st.info("""
-**V55 Güncellemesi (Görsel Optimizasyon):**
-Excel çıktısındaki Sınıf ve Seviye sütunları kurumsal renk kodlarına göre (A1: Sarı, A2: Turuncu, B1: Bordo, B2: Koyu Yeşil, PreFac: Mor) beyaz kalın fontla (Bold) renklendirildi.
+**V56 Güncellemesi (Native Önceliği):**
+Native hocalar artık rastgele atanmaz. Matematiksel olarak kesin bir öncelik sırasıyla yerleştirilirler: **B2 > B1 > A2 > PreFaculty**. 
+Eğer tüm sınıflar dolar ve Native hoca açıkta kalırsa, bu durum İhlal Raporunda özel olarak belirtilir.
 """)
 
 # --- YAN PANEL ---
@@ -204,7 +205,7 @@ if uploaded_file:
             st.warning(f"⚠️ Kapasite yetersiz. {abs(excess_capacity)} ders saati zorunlu olarak boş kalacak.")
 
         if st.button("🚀 Programı Oluştur"):
-            with st.spinner("Matematiksel model kuruluyor..."):
+            with st.spinner("Matematiksel model kuruluyor... (Native Şelalesi devrede)"):
                 model = cp_model.CpModel()
                 days = range(5)
                 day_names = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"]
@@ -315,14 +316,32 @@ if uploaded_file:
                             model.AddImplication(adv_3days, is_adv)
                             objective.append(adv_3days * 20000000)
 
+                # NATIVE SINIRI (Ceza)
                 for t_idx, t in enumerate(teachers_list):
-                    if 'Native' in str(t['Rol']):
+                    if 'NATIVE' in str(t['Rol']).upper():
                         for c_idx in range(len(classes_list)):
                             class_total = sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions)
                             is_violation = model.NewBoolVar(f'ntv_vio_{t_idx}_{c_idx}')
                             model.Add(class_total <= 1 + 5 * is_violation)
                             objective.append(is_violation * -20000000)
 
+                # NATIVE ŞELALESİ (B2 > B1 > A2 > PreFaculty Puanlaması)
+                for c_idx, c_data in enumerate(classes_list):
+                    for t_idx, t in enumerate(teachers_list):
+                        if 'NATIVE' in str(t['Rol']).upper():
+                            is_present = model.NewBoolVar(f'ntv_score_{t_idx}_{c_idx}')
+                            model.AddMaxEquality(is_present, [x[(t_idx, c_idx, d, s)] for d in days for s in sessions])
+                            lvl = c_data['Seviye']
+                            
+                            if lvl == "B2": score = 10000000
+                            elif lvl == "B1": score = 1000000
+                            elif lvl == "A2": score = 100000
+                            elif lvl == "PreFaculty": score = 10000
+                            else: score = 0 # A1 zaten yasaklı
+                            
+                            objective.append(is_present * score)
+
+                # Tek Vardiya (Ceza)
                 for t_idx, t in enumerate(teachers_list):
                     for d in days:
                         is_morning = model.NewBoolVar(f'm_{t_idx}_{d}')
@@ -358,7 +377,15 @@ if uploaded_file:
                     st.balloons()
                     res_data = []
                     violations = []
-                    native_names = [t['Ad Soyad'] for t in teachers_list if 'Native' in str(t['Rol'])]
+                    native_names = [t['Ad Soyad'] for t in teachers_list if 'NATIVE' in str(t['Rol']).upper()]
+
+                    # NATIVE BOŞTA KALMA KONTROLÜ
+                    for t_idx, t in enumerate(teachers_list):
+                        if 'NATIVE' in str(t['Rol']).upper():
+                            assigned = sum([solver.Value(x[(t_idx, c, d, s)]) for c in range(len(classes_list)) for d in days for s in sessions])
+                            real_target = adjusted_targets[t_idx]
+                            if assigned < real_target:
+                                violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Boşta Kaldı ({real_target - assigned} Saat Yerleşemedi)", "Sınıf": "Yetersiz Kota"})
 
                     for c_idx, c in enumerate(classes_list):
                         c_name = c['Sınıf Adı']
@@ -433,16 +460,14 @@ if uploaded_file:
                         base_fmt = {'border': 1, 'align': 'center', 'valign': 'vcenter'}
                         fmt_default = wb.add_format(base_fmt)
                         
-                        # Seviyelere Özel Kurumsal Renkler (Beyaz ve Kalın Font ile)
                         fmt_a1 = wb.add_format(dict(base_fmt, bg_color='#FFD700', font_color='white', bold=True))
                         fmt_a2 = wb.add_format(dict(base_fmt, bg_color='#FFA500', font_color='white', bold=True))
                         fmt_b1 = wb.add_format(dict(base_fmt, bg_color='#800000', font_color='white', bold=True))
                         fmt_b2 = wb.add_format(dict(base_fmt, bg_color='#006400', font_color='white', bold=True))
                         fmt_pre = wb.add_format(dict(base_fmt, bg_color='#604878', font_color='white', bold=True))
                         
-                        fmt_blue = wb.add_format(dict(base_fmt, bg_color='#ADD8E6')) # Native Hocalar
+                        fmt_blue = wb.add_format(dict(base_fmt, bg_color='#ADD8E6')) 
 
-                        # Bold yazılar sığsın diye sütunları biraz genişletiyoruz
                         ws_prog.set_column('A:B', 12)
                         ws_prog.set_column('C:C', 20)
                         ws_prog.set_column('E:I', 14)
@@ -453,7 +478,6 @@ if uploaded_file:
                             ws_prog.set_row(excel_r, 20)
                             lvl = str(row['Seviye'])
                             
-                            # İlgili seviyeye göre doğru formatı seç
                             if lvl == "A1": c_fmt = fmt_a1
                             elif lvl == "A2": c_fmt = fmt_a2
                             elif lvl == "B1": c_fmt = fmt_b1
