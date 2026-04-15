@@ -5,13 +5,12 @@ import io
 import collections
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Ders Programı V58 - Hiyerarşik Kırpma", layout="wide")
+st.set_page_config(page_title="Ders Programı V59 - Gerçek Şelale", layout="wide")
 
-st.title("🛡️ Hazırlık Ders Programı (V58 - Tam Kararlılık)")
+st.title("🛡️ Hazırlık Ders Programı (V59 - Native Sınırı)")
 st.info("""
-**V58 Güncellemesi (Karakter Bug'ı Çözümü):**
-Türkçe i/İ harflerinden kaynaklanan rol tanıma hatası giderildi. 
-Fazla dersler artık **KESİNLİKLE önce Ek Görevli**, sonra **Destek** hocalarından kırpılır. Native hocalar koruma altındadır.
+**V59 Güncellemesi (Tek Native Kuralı):**
+Bir sınıfa en fazla **1 farklı Native** öğretmen atanabilir. Bu kural sayesinde Native hocalar aynı sınıfa yığılmaz; kapasite doldukça B2 > B1 > A2 > PreFaculty sırasıyla şelale gibi alt kurlara dağılır.
 """)
 
 # --- YAN PANEL ---
@@ -74,7 +73,7 @@ def generate_template():
 st.sidebar.markdown("---")
 st.sidebar.download_button("📥 Kılavuzlu Şablonu İndir", generate_template(), "ogretmen_listesi.xlsx")
 
-# --- GÜVENLİ ROL OKUYUCU (TÜRKÇE KARAKTER BUG'I ÇÖZÜMÜ) ---
+# --- GÜVENLİ ROL OKUYUCU ---
 def get_role(t):
     return str(t['Rol']).upper().replace('İ', 'I').replace('i', 'I').replace('ı', 'I')
 
@@ -165,7 +164,6 @@ if uploaded_file:
         if excess_capacity > 0:
             st.info(f"ℹ️ Hoca kapasitesi {excess_capacity} saat fazla. Ek Görevli ve Destek hocalarından adil kırpma yapılacaktır (Native Hariç).")
             
-            # i/İ sorununu çözen yeni get_role ile index tespiti
             ek_idx = [i for i, t in enumerate(teachers_list) if 'EK GÖREVL' in get_role(t)]
             destek_idx = [i for i, t in enumerate(teachers_list) if 'DESTEK' in get_role(t)]
             other_idx = [i for i, t in enumerate(teachers_list) if i not in ek_idx and i not in destek_idx and 'NATIVE' not in get_role(t)]
@@ -286,9 +284,31 @@ if uploaded_file:
                         for c_idx in range(len(classes_list)):
                             model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
-                # --- 2. PUANLI KURALLAR (SOFT CONSTRAINTS) ---
+                # --- 2. PUANLI KURALLAR VE NATIVE ŞELALESİ ---
                 objective = []
                 objective.append(sum(x.values()) * 100000000)
+
+                # NATIVE ŞELALESİ VE SINIF BAŞINA MAX 1 NATIVE KURALI
+                for c_idx, c_data in enumerate(classes_list):
+                    native_in_this_class = []
+                    for t_idx, t in enumerate(teachers_list):
+                        if 'NATIVE' in get_role(t):
+                            is_present = model.NewBoolVar(f'ntv_score_{t_idx}_{c_idx}')
+                            model.AddMaxEquality(is_present, [x[(t_idx, c_idx, d, s)] for d in days for s in sessions])
+                            native_in_this_class.append(is_present)
+                            
+                            lvl = c_data['Seviye']
+                            if lvl == "B2": score = 10000000
+                            elif lvl == "B1": score = 1000000
+                            elif lvl == "A2": score = 100000
+                            elif lvl == "PreFaculty": score = 10000
+                            else: score = 0 
+                            
+                            objective.append(is_present * score)
+                            
+                    # BİR SINIFA EN FAZLA 1 FARKLI NATIVE GİREBİLİR KURALI
+                    if native_in_this_class:
+                        model.Add(sum(native_in_this_class) <= 1)
 
                 for t_idx, t_data in enumerate(teachers_list):
                     forbidden_days = str(t_data['Yasaklı Günler'])
@@ -324,7 +344,7 @@ if uploaded_file:
                             model.AddImplication(adv_3days, is_adv)
                             objective.append(adv_3days * 20000000)
 
-                # NATIVE SINIRI (Ceza)
+                # NATIVE SINIRI (1 Sınıfa max 1 saat)
                 for t_idx, t in enumerate(teachers_list):
                     if 'NATIVE' in get_role(t):
                         for c_idx in range(len(classes_list)):
@@ -332,22 +352,6 @@ if uploaded_file:
                             is_violation = model.NewBoolVar(f'ntv_vio_{t_idx}_{c_idx}')
                             model.Add(class_total <= 1 + 5 * is_violation)
                             objective.append(is_violation * -20000000)
-
-                # NATIVE ŞELALESİ (B2 > B1 > A2 > PreFaculty Puanlaması)
-                for c_idx, c_data in enumerate(classes_list):
-                    for t_idx, t in enumerate(teachers_list):
-                        if 'NATIVE' in get_role(t):
-                            is_present = model.NewBoolVar(f'ntv_score_{t_idx}_{c_idx}')
-                            model.AddMaxEquality(is_present, [x[(t_idx, c_idx, d, s)] for d in days for s in sessions])
-                            lvl = c_data['Seviye']
-                            
-                            if lvl == "B2": score = 10000000
-                            elif lvl == "B1": score = 1000000
-                            elif lvl == "A2": score = 100000
-                            elif lvl == "PreFaculty": score = 10000
-                            else: score = 0 
-                            
-                            objective.append(is_present * score)
 
                 # Tek Vardiya (Ceza)
                 for t_idx, t in enumerate(teachers_list):
@@ -393,7 +397,7 @@ if uploaded_file:
                             assigned = sum([solver.Value(x[(t_idx, c, d, s)]) for c in range(len(classes_list)) for d in days for s in sessions])
                             real_target = adjusted_targets[t_idx]
                             if assigned < real_target:
-                                violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Boşta Kaldı ({real_target - assigned} Saat Yerleşemedi)", "Sınıf": "Yetersiz Kota"})
+                                violations.append({"Hoca": t['Ad Soyad'], "Sorun": f"Boşta Kaldı ({real_target - assigned} Saat)", "Sınıf": "Yetersiz Şelale Kotası"})
 
                     for c_idx, c in enumerate(classes_list):
                         c_name = c['Sınıf Adı']
