@@ -6,7 +6,7 @@ import collections
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Hazırlık Ders Programı Koordinatör Kokpiti (V75)",
+    page_title="Hazırlık Ders Programı Koordinatör Kokpiti (V76)",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -50,8 +50,8 @@ def generate_template():
     return output.getvalue()
 
 # --- BAŞLIK VE YAN PANEL ---
-st.title("🛡️ Hazırlık Ders Programı Koordinatör Kokpiti (V75)")
-st.caption("Google OR-Tools CP-SAT Motoru • Kriz Dedektifli • Manuel Pinleme ve Senaryo Kıyaslamalı")
+st.title("🛡️ Hazırlık Ders Programı Koordinatör Kokpiti (V76)")
+st.caption("Google OR-Tools CP-SAT Motoru • Asenkron Ders Modülü • Kriz Dedektifli ve Manuel Pinlemeli")
 
 with st.sidebar:
     st.header("📁 Veri Girişi")
@@ -120,13 +120,18 @@ with tab_config:
     with c5: count_pre = st.number_input("PreFaculty Şube", 0, 10, 0)
 
     st.markdown("---")
-    st.subheader("⚙️ Çözücü Kuralları & Toleranslar")
+    st.subheader("⚙️ Çözücü Kuralları & Asenkron Ders Modülü")
     col_rule1, col_rule2 = st.columns(2)
     with col_rule1:
-        max_teachers_per_class = st.slider("Sınıf Başına Max Farklı Öğretmen", 1, 6, 3, 
-                                           help="Bir sınıfa hafta boyunca en fazla kaç farklı öğretmen girebilir?")
+        max_teachers_per_class = st.slider("Sınıf Başına Max Farklı Öğretmen (Canlı Ders)", 1, 6, 3, 
+                                           help="Bir sınıfa hafta boyunca en fazla kaç farklı canlı ders öğretmeni girebilir?")
         allow_empty_slots = st.checkbox("Sıkışınca Boş Ders Bırak", value=True, 
                                         help="Kapatılırsa okulun her dersi için hoca bulunması zorunlu olur.")
+        enable_asynch = st.checkbox(
+            "💻 Asenkron Ders Slotu Aç (Yalnızca B1 ve B2)",
+            value=True,
+            help="İşaretlendiğinde her B1 ve B2 şubesine 1 adet Asenkron ders hoca slotu açılır. Bu slot, atanan hocanın haftalık kotasından 1 ders gününe karşılık gelir."
+        )
     with col_rule2:
         strict_forbidden_days = st.checkbox("Yasaklı Günleri Kesin Kural Yap (Hard)", value=False, 
                                            help="Açıkken hocaya yasaklı gününe ASLA ders yazılmaz.")
@@ -135,9 +140,8 @@ with tab_config:
     # 1A: MANUEL HÜCRE PİNLEME (KİLİTLEME) ARAYÜZÜ
     st.markdown("---")
     with st.expander("📌 Manuel Hücre Kilitleme (Pinning Yöneticisi)", expanded=False):
-        st.info("Belirli bir hocanın belirli bir sınıfa, güne ve seansa kesin olarak atanmasını istiyorsanız buradan sabitleyebilirsiniz.")
+        st.info("Belirli bir hocanın belirli bir sınıfa, güne veya Asenkron slota kesin olarak atanmasını sabitleyebilirsiniz.")
         
-        # Sınıfları üret
         temp_classes = []
         cfg = [(count_a1, "A1"), (count_a2, "A2"), (count_b1, "B1"), (count_b2, "B2"), (count_pre, "PreFaculty")]
         for cnt, lvl in cfg:
@@ -151,8 +155,10 @@ with tab_config:
             p_col1, p_col2, p_col3, p_col4, p_col5 = st.columns([2, 1.5, 1.5, 1.5, 1])
             with p_col1: pin_teacher = st.selectbox("Öğretmen:", t_names, key="pin_t")
             with p_col2: pin_class = st.selectbox("Sınıf:", temp_classes, key="pin_c")
-            with p_col3: pin_day = st.selectbox("Gün:", ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"], key="pin_d")
-            with p_col4: pin_session = st.selectbox("Vardiya:", ["Sabah", "Öğle"], key="pin_s")
+            with p_col3: pin_day = st.selectbox("Gün (Canlı için):", ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "-"], key="pin_d")
+            with p_col4: 
+                sess_opts = ["Sabah", "Öğle", "Asenkron"] if enable_asynch else ["Sabah", "Öğle"]
+                pin_session = st.selectbox("Vardiya / Tür:", sess_opts, key="pin_s")
             with p_col5:
                 st.write("")
                 st.write("")
@@ -165,8 +171,7 @@ with tab_config:
 
             if st.session_state['pinned_assignments']:
                 st.write("##### Mevcut Kilitli Atamalar:")
-                df_pins = pd.DataFrame(st.session_state['pinned_assignments'])
-                st.dataframe(df_pins, use_container_width=True)
+                st.dataframe(pd.DataFrame(st.session_state['pinned_assignments']), use_container_width=True)
         else:
             st.caption("Önce sol menüden Excel yükleyin ve şube sayılarını belirleyin.")
 
@@ -208,7 +213,8 @@ with tab_precheck:
 
         morning_needs = sum([3 if c['Seviye'] == 'PreFaculty' else 5 for c in classes_list if c['Zaman Kodu'] == 0])
         afternoon_needs = sum([3 if c['Seviye'] == 'PreFaculty' else 5 for c in classes_list if c['Zaman Kodu'] == 1])
-        total_needs = morning_needs + afternoon_needs
+        asynch_needs = (count_b1 + count_b2) if enable_asynch else 0
+        total_needs = morning_needs + afternoon_needs + asynch_needs
 
         morning_cap, afternoon_cap, flex_cap = 0, 0, 0
         base_targets = []
@@ -226,10 +232,13 @@ with tab_precheck:
         excess = total_teacher_cap - total_needs
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Toplam Ders İhtiyacı", f"{total_needs} Saat")
+        m1.metric("Toplam Ders İhtiyacı", f"{total_needs} Saat", help=f"Canlı Dersler: {morning_needs + afternoon_needs}, Asenkron: {asynch_needs}")
         m2.metric("Toplam Hoca Kapasitesi", f"{total_teacher_cap} Saat", delta=f"{excess} Saat Fark")
-        m3.metric("Sabah Grubu (İhtiyaç/Kapasite)", f"{morning_needs} / {morning_cap} (+{flex_cap})")
-        m4.metric("Öğle Grubu (İhtiyaç/Kapasite)", f"{afternoon_needs} / {afternoon_cap} (+{flex_cap})")
+        m3.metric("Sabah Grubu (Canlı)", f"{morning_needs} / {morning_cap} (+{flex_cap})")
+        m4.metric("Öğle Grubu (Canlı)", f"{afternoon_needs} / {afternoon_cap} (+{flex_cap})")
+
+        if enable_asynch:
+            st.info(f"💻 **Asenkron Ders Durumu:** B1 ve B2 seviyesindeki {count_b1 + count_b2} şube için toplam **{asynch_needs} ders günü** asenkron kontenjanı hesaplamaya dahil edildi.")
 
         # Kırpma Simülasyonu
         adjusted_targets = list(base_targets)
@@ -254,14 +263,12 @@ with tab_precheck:
                 if not trimmed: break
 
 # ==============================================================================
-# 3A: AKILLI KRİZ DEDEKTİFİ (OTOMATİK GEVŞETME / DIAGNOSTIC ENGINE)
+# 3A: AKILLI KRİZ DEDEKTİFİ
 # ==============================================================================
-def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_teachers_per_class, strict_forbidden_days):
-    """Model Infeasible olduğunda nedenini tespit etmek için gevşetilmiş bir CP-SAT modeli çözer."""
+def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_teachers_per_class, strict_forbidden_days, enable_asynch):
     diag_model = cp_model.CpModel()
     days = range(5)
     sessions = range(2)
-    day_names = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"]
 
     x = {}
     teacher_in_class = {}
@@ -277,9 +284,8 @@ def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_tea
             diag_model.AddMaxEquality(teacher_in_class[(t, c)], [x[(t, c, d, s)] for d in days for s in sessions])
 
     slacks = []
-    slack_reports = []
 
-    # 1. Boş Ders Gevşetmesi (Her derse hoca girebildi mi?)
+    # 1. Boş Ders Gevşetmesi
     for c_idx, c_data in enumerate(classes_list):
         req_s = c_data['Zaman Kodu']
         for d in days:
@@ -296,7 +302,7 @@ def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_tea
         diag_model.Add(sum(teacher_in_class[(t, c)] for t in range(len(teachers_list))) <= max_teachers_per_class + slack_max_t[c])
         slacks.append(slack_max_t[c] * 500)
 
-    # 3. İstenmeyen Partner Gevşetmesi
+    # 3. İstenmeyen Partner
     name_to_idx = {str(t['Ad Soyad']).strip(): i for i, t in enumerate(teachers_list)}
     slack_partners = {}
     processed_pairs = set()
@@ -313,13 +319,13 @@ def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_tea
                         slack_partners[(t_idx, p_idx, c)] = sp
                         slacks.append(sp * 300)
 
-    # 4. Hoca çakışması (Kesin kural)
+    # 4. Hoca Çakışması
     for t in range(len(teachers_list)):
         for d in days:
             for s in sessions:
                 diag_model.Add(sum(x[(t, c, d, s)] for c in range(len(classes_list))) <= 1)
 
-    # 5. Seviye yetkinliği (Gevşetilebilir)
+    # 5. Seviye Yetkinliği
     slack_comp = {}
     for t_idx, t in enumerate(teachers_list):
         allowed = str(t.get('Yetkinlik (Seviyeler)', '')).strip()
@@ -333,7 +339,15 @@ def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_tea
                             diag_model.Add(x[(t_idx, c_idx, d, s)] <= s_c)
                     slacks.append(s_c * 400)
 
-    # Hedef ders saati
+    # 6. Asenkron Gevşetmesi (Varsa)
+    slack_asynch = {}
+    if enable_asynch:
+        for c_idx, c in enumerate(classes_list):
+            if c['Seviye'] in ['B1', 'B2']:
+                s_as = diag_model.NewBoolVar(f's_asynch_{c_idx}')
+                slack_asynch[c_idx] = s_as
+                slacks.append(s_as * 800)
+
     for t_idx, t in enumerate(teachers_list):
         diag_model.Add(sum(x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions) <= adjusted_targets[t_idx])
 
@@ -358,7 +372,7 @@ def run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_tea
                 diagnostics.append(f"🎓 **Yetkinlik Yetersizliği:** '{teachers_list[t_idx]['Ad Soyad']}', yetkinliği olmadığı halde '{classes_list[c_idx]['Sınıf Adı']}' sınıfına atanmak zorunda kalıyor.")
 
     if not diagnostics:
-        diagnostics.append("Genel kapasite yetersizliği veya aşırı kısıtlayıcı Yasaklı Gün / Pinleme çakışması tespit edildi.")
+        diagnostics.append("Genel kapasite yetersizliği, Asenkron kota darlığı veya aşırı kısıtlayıcı Yasaklı Gün / Pinleme çakışması tespit edildi.")
 
     return diagnostics
 
@@ -371,11 +385,10 @@ with tab_results:
     if not uploaded_file:
         st.info("Program oluşturmak için lütfen sol menüden dosyanızı yükleyin.")
     else:
-        # 3B: 3 FARKLI OPTİMİZASYON PROFİLİ (A-B-C PLANLARI)
         col_prof1, col_prof2 = st.columns([2, 1])
         with col_prof1:
             variant_profile = st.selectbox(
-                "🎯 Optimizasyon Profili (Çözüm Stratejisi Seçin):",
+                "🎯 Optimizasyon Profili (Çözüm Stratejisi):",
                 [
                     "Plan A: Dengeli / Kurumsal (Önerilen)",
                     "Plan B: Öğretmen Odaklı (Maksimum Hoca Memnuniyeti)",
@@ -398,7 +411,9 @@ with tab_results:
                 x = {}
                 advisor_var = {}
                 teacher_in_class = {}
+                asynch_var = {}
 
+                # Canlı Ders Değişkenleri
                 for t in range(len(teachers_list)):
                     for c in range(len(classes_list)):
                         advisor_var[(t, c)] = model.NewBoolVar(f'adv_{t}_{c}')
@@ -411,18 +426,30 @@ with tab_results:
                     for c in range(len(classes_list)):
                         model.AddMaxEquality(teacher_in_class[(t, c)], [x[(t, c, d, s)] for d in days for s in sessions])
 
-                # --- 1A: PINLENMİŞ (KİLİTLENMİŞ) ATAMALARIN MODELDE ZORLANMASI ---
+                # Asenkron Ders Değişkenleri (Yalnızca B1 ve B2)
+                b1_b2_indices = [i for i, c in enumerate(classes_list) if c['Seviye'] in ['B1', 'B2']]
+                if enable_asynch:
+                    for t in range(len(teachers_list)):
+                        for c_idx in b1_b2_indices:
+                            asynch_var[(t, c_idx)] = model.NewBoolVar(f'asynch_{t}_{c_idx}')
+
+                # --- 1A: PINLENMİŞ ATAMALARIN MODELDE ZORLANMASI ---
                 name_to_idx = {str(t['Ad Soyad']).strip(): i for i, t in enumerate(teachers_list)}
                 for pin in st.session_state['pinned_assignments']:
                     p_t = name_to_idx.get(pin['teacher'])
                     p_c = next((i for i, c in enumerate(classes_list) if c['Sınıf Adı'] == pin['class']), None)
-                    p_d = day_names.index(pin['day']) if pin['day'] in day_names else None
-                    p_s = 0 if pin['session'] == 'Sabah' else 1
-                    if p_t is not None and p_c is not None and p_d is not None:
-                        model.Add(x[(p_t, p_c, p_d, p_s)] == 1)
+                    if p_t is not None and p_c is not None:
+                        if pin['session'] == 'Asenkron' and enable_asynch:
+                            if (p_t, p_c) in asynch_var:
+                                model.Add(asynch_var[(p_t, p_c)] == 1)
+                        else:
+                            p_d = day_names.index(pin['day']) if pin['day'] in day_names else None
+                            p_s = 0 if pin['session'] == 'Sabah' else 1
+                            if p_d is not None:
+                                model.Add(x[(p_t, p_c, p_d, p_s)] == 1)
 
                 # --- HARD CONSTRAINTS ---
-                # Sınıf Başına Max Hoca
+                # Sınıf Başına Max Hoca (Canlı dersler için)
                 for c in range(len(classes_list)):
                     model.Add(sum(teacher_in_class[(t, c)] for t in range(len(teachers_list))) <= max_teachers_per_class)
 
@@ -438,7 +465,7 @@ with tab_results:
                                 for c in range(len(classes_list)):
                                     model.Add(teacher_in_class[(t_idx, c)] + teacher_in_class[(p_idx, c)] <= 1)
 
-                # Hoca Çakışması
+                # Hoca Çakışması (Aynı anda 1 sınıfta)
                 for t in range(len(teachers_list)):
                     for d in days:
                         for s in sessions:
@@ -467,6 +494,8 @@ with tab_results:
                                 for d in days:
                                     for s in sessions: model.Add(x[(t_idx, c_idx, d, s)] == 0)
                                 model.Add(advisor_var[(t_idx, c_idx)] == 0)
+                                if enable_asynch and (t_idx, c_idx) in asynch_var:
+                                    model.Add(asynch_var[(t_idx, c_idx)] == 0)
 
                 # Danışmanlık ve Roller
                 for c in range(len(classes_list)):
@@ -494,9 +523,23 @@ with tab_results:
                         for c_idx in range(len(classes_list)):
                             model.Add(sum(x[(t_idx, c_idx, d, s)] for d in days for s in sessions) <= 1)
 
-                # Tavan Saat Sınırı
-                for t_idx, t in enumerate(teachers_list):
-                    model.Add(sum(x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions) <= adjusted_targets[t_idx])
+                # --- ASENKRON DERS KISITLARI (B1 ve B2 İÇİN) ---
+                if enable_asynch:
+                    for c_idx in b1_b2_indices:
+                        if allow_empty_slots:
+                            model.Add(sum(asynch_var[(t, c_idx)] for t in range(len(teachers_list))) <= 1)
+                        else:
+                            model.Add(sum(asynch_var[(t, c_idx)] for t in range(len(teachers_list))) == 1)
+
+                    # Tavan Saat: Canlı Dersler + Asenkron Ders == adjusted_target
+                    for t_idx, t in enumerate(teachers_list):
+                        live_total = sum(x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions)
+                        asynch_total = sum(asynch_var[(t_idx, c)] for c in b1_b2_indices)
+                        # Asenkron ders 1 ders gününe tekabül eder:
+                        model.Add(live_total + asynch_total <= adjusted_targets[t_idx])
+                else:
+                    for t_idx, t in enumerate(teachers_list):
+                        model.Add(sum(x[(t_idx, c, d, s)] for c in range(len(classes_list)) for d in days for s in sessions) <= adjusted_targets[t_idx])
 
                 # Yasaklı Gün Kesin Kuralı
                 if strict_forbidden_days:
@@ -507,24 +550,29 @@ with tab_results:
                                 for c in range(len(classes_list)):
                                     for s in sessions: model.Add(x[(t_idx, c, d_idx, s)] == 0)
 
-                # --- 3B: PROFİLE GÖRE DİNAMİK AĞIRLIKLANDIRMA ---
+                # --- PROFİLE GÖRE DİNAMİK AĞIRLIKLANDIRMA ---
                 objective = []
                 base_slot_reward = 1000000
                 objective.append(sum(x.values()) * base_slot_reward)
 
+                # Asenkron slotların doldurulması teşviki
+                if enable_asynch:
+                    for (t, c), a_var in asynch_var.items():
+                        objective.append(a_var * base_slot_reward)
+
                 if "Plan B: Öğretmen Odaklı" in variant_profile:
-                    w_shift_penalty = -500000     # Yanlış vardiyaya çok ağır ceza
-                    w_split_penalty = -1000000    # Çift vardiyaya devasa ceza
+                    w_shift_penalty = -500000
+                    w_split_penalty = -1000000
                     w_adv_mon = 200000
                     w_adv_multi = 100000
                     w_native_b2 = 50000
                 elif "Plan C: Pedagoji" in variant_profile:
                     w_shift_penalty = -50000
                     w_split_penalty = -300000
-                    w_adv_mon = 1000000           # Danışman Pazartesi sınıfta olmalı
-                    w_adv_multi = 500000          # Danışman sınıfta çok kalmalı
-                    w_native_b2 = 300000          # Native şelalesi öncelikli
-                else: # Plan A: Dengeli
+                    w_adv_mon = 1000000
+                    w_adv_multi = 500000
+                    w_native_b2 = 300000
+                else:
                     w_shift_penalty = -150000
                     w_split_penalty = -500000
                     w_adv_mon = 500000
@@ -608,6 +656,7 @@ with tab_results:
                 if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
                     class_schedule = []
                     teacher_schedule = {t['Ad Soyad']: {d: "-" for d in day_names} for t in teachers_list}
+                    teacher_asynch_assigned = {t['Ad Soyad']: [] for t in teachers_list}
                     violations = []
                     native_names = [t['Ad Soyad'] for t in teachers_list if 'NATIVE' in get_role(t)]
 
@@ -627,6 +676,7 @@ with tab_results:
 
                         row = {"Sınıf": c_name, "Seviye": c['Seviye'], "Danışman": adv_name, "Vardiya": "Sabah" if s_req == 0 else "Öğle"}
 
+                        # Canlı Günler
                         for d_idx, d_name in enumerate(day_names):
                             val = "🔴 BOŞ"
                             if c['Seviye'] == "PreFaculty" and d_idx >= 3:
@@ -652,9 +702,26 @@ with tab_results:
                                         break
 
                             if val == "🔴 BOŞ":
-                                violations.append({"Hoca": "-", "Tür": f"Boş Ders ({d_name})", "Detay": c_name})
+                                violations.append({"Hoca": "-", "Tür": f"Boş Canlı Ders ({d_name})", "Detay": c_name})
 
                             row[d_name] = val
+
+                        # Asenkron Slot Değerlendirmesi
+                        if enable_asynch:
+                            if c['Seviye'] in ['B1', 'B2']:
+                                asynch_teacher = "🔴 BOŞ"
+                                for t_idx in range(len(teachers_list)):
+                                    if solver.Value(asynch_var[(t_idx, c_idx)]) == 1:
+                                        asynch_teacher = teachers_list[t_idx]['Ad Soyad']
+                                        total_assigned_slots += 1
+                                        teacher_asynch_assigned[asynch_teacher].append(c_name)
+                                        break
+                                row["Asenkron"] = asynch_teacher
+                                if asynch_teacher == "🔴 BOŞ":
+                                    violations.append({"Hoca": "-", "Tür": "Boş Asenkron Slot", "Detay": c_name})
+                            else:
+                                row["Asenkron"] = "—"
+
                         class_schedule.append(row)
 
                     for t_idx, t in enumerate(teachers_list):
@@ -667,13 +734,19 @@ with tab_results:
                     stats_list = []
                     for t_idx, t in enumerate(teachers_list):
                         t_name = t['Ad Soyad']
-                        assigned = sum(solver.Value(x[(t_idx, c, d, s)]) for c in range(len(classes_list)) for d in days for s in sessions)
+                        assigned_live = sum(solver.Value(x[(t_idx, c, d, s)]) for c in range(len(classes_list)) for d in days for s in sessions)
+                        assigned_as = len(teacher_asynch_assigned[t_name])
+                        total_t = assigned_live + assigned_as
+                        target_t = adjusted_targets[t_idx]
+
                         stats_list.append({
                             "Ad Soyad": t_name,
                             "Rol": t.get('Rol', ''),
-                            "Hedef": adjusted_targets[t_idx],
-                            "Atanan": assigned,
-                            "Durum": "Kusursuz" if assigned == adjusted_targets[t_idx] else f"{adjusted_targets[t_idx] - assigned} Eksik"
+                            "Hedef": target_t,
+                            "Canlı Ders": assigned_live,
+                            "Asenkron": assigned_as,
+                            "Toplam": total_t,
+                            "Durum": "Kusursuz" if total_t == target_t else f"{target_t - total_t} Eksik"
                         })
 
                     teacher_rows = []
@@ -681,10 +754,11 @@ with tab_results:
                         t_name = s_row['Ad Soyad']
                         t_dict = dict(s_row)
                         t_dict.update(teacher_schedule[t_name])
+                        if enable_asynch:
+                            t_dict["Asenkron Sınıf"] = ", ".join(teacher_asynch_assigned[t_name]) if teacher_asynch_assigned[t_name] else "—"
                         teacher_rows.append(t_dict)
 
-                    # Metriklerin Paketlenmesi (Senaryo Kıyaslama için)
-                    total_needed_slots = sum([3 if c['Seviye'] == 'PreFaculty' else 5 for c in classes_list])
+                    total_needed_slots = sum([3 if c['Seviye'] == 'PreFaculty' else 5 for c in classes_list]) + ((count_b1 + count_b2) if enable_asynch else 0)
                     fill_rate = round((total_assigned_slots / total_needed_slots) * 100, 1) if total_needed_slots > 0 else 100
                     adv_mon_rate = round((advisor_mon_success / len(classes_list)) * 100, 1) if classes_list else 100
 
@@ -695,20 +769,20 @@ with tab_results:
                         "df_stats": pd.DataFrame(stats_list),
                         "df_violations": pd.DataFrame(violations).drop_duplicates() if violations else pd.DataFrame(),
                         "native_names": native_names,
+                        "enable_asynch": enable_asynch,
                         "metrics": {
                             "Profil": variant_profile,
                             "Ders Doluluk (%)": fill_rate,
-                            "Boş Kalan Ders": total_needed_slots - total_assigned_slots,
+                            "Boş Kalan Slot": total_needed_slots - total_assigned_slots,
                             "Ters Vardiya Sayısı": wrong_shift_count,
-                            "Çift Vardiya (Split) Sayısı": split_shift_count,
+                            "Çift Vardiya Sayısı": split_shift_count,
                             "Danışman Pazartesi Uyum (%)": adv_mon_rate
                         }
                     }
                 else:
-                    # 3A: MODEL ÇÖZÜLEMEDİĞİNDE OTOMATİK KRİZ DEDEKTİFİ DEVREYE GİRER
                     st.error("❌ Model mevcut kısıtlarla çözülemedi (Infeasible).")
                     with st.spinner("🩺 Akıllı Kriz Dedektifi çalıştırılıyor... Kilitlenmenin kök nedeni taranıyor..."):
-                        diags = run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_teachers_per_class, strict_forbidden_days)
+                        diags = run_diagnostic_engine(teachers_list, classes_list, adjusted_targets, max_teachers_per_class, strict_forbidden_days, enable_asynch)
                         st.warning("### 🩺 Kriz Dedektifi Teşhis Raporu:")
                         st.info("Aşağıdaki çakışmalar sistemin kilitlenmesine neden oldu. Lütfen bu noktaları esnetmeyi deneyin:")
                         for d in diags:
@@ -721,7 +795,7 @@ with tab_results:
 
         st.success(f"✅ Program başarıyla oluşturuldu! (**Kullanılan Strateji:** {sol['profile_name']})")
 
-        # 1C: SENARYO KAYDETME BÖLÜMÜ
+        # Senaryo Kaydetme
         sc_col1, sc_col2 = st.columns([3, 1])
         with sc_col1:
             scenario_name_input = st.text_input("Bu Çözümü Senaryo Olarak Kaydet:", value=f"Senaryo_{len(st.session_state['saved_scenarios'])+1} ({sol['profile_name'][:12]})")
@@ -770,10 +844,13 @@ with tab_results:
             fmt_b2 = wb.add_format(dict(base_fmt, bg_color='#006400', font_color='white', bold=True))
             fmt_pre = wb.add_format(dict(base_fmt, bg_color='#604878', font_color='white', bold=True))
             fmt_blue = wb.add_format(dict(base_fmt, bg_color='#ADD8E6'))
+            fmt_asynch = wb.add_format(dict(base_fmt, bg_color='#E6E6FA', bold=True))
 
             ws_c.set_column('A:B', 12)
             ws_c.set_column('C:C', 20)
             ws_c.set_column('E:I', 15)
+            if sol['enable_asynch']:
+                ws_c.set_column('J:J', 18)
 
             for r, row in sol['df_classes'].iterrows():
                 e_r = r + 1
@@ -787,19 +864,23 @@ with tab_results:
                     val = row.iloc[c_i]
                     ws_c.write(e_r, c_i, val, fmt_blue if val in sol['native_names'] else fmt_def)
 
+                if sol['enable_asynch']:
+                    as_val = row.get('Asenkron', '—')
+                    ws_c.write(e_r, 9, as_val, fmt_asynch if as_val not in ['—', '🔴 BOŞ'] else fmt_def)
+
             ws_t.set_column('A:B', 18)
-            ws_t.set_column('G:K', 16)
+            ws_t.set_column('G:L', 16)
 
         st.download_button(
             "📥 Çok Sekmeli Kurumsal Excel'i İndir (.xlsx)",
             output_res.getvalue(),
-            "hazirlik_ders_programi_v75.xlsx",
+            "hazirlik_ders_programi_v76.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
 
 # ==============================================================================
-# SEKME 4: 1C - WHAT-IF SENARYO KIYASLAMA EKRANI
+# SEKME 4: WHAT-IF SENARYO KIYASLAMA EKRANI
 # ==============================================================================
 with tab_whatif:
     st.subheader("⚖️ 'What-If' Senaryo & Profil Kıyaslama")
